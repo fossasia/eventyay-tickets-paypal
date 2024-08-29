@@ -1,0 +1,3 @@
+recursive-include eventyay_paypal/static *
+recursive-include eventyay_paypal/templates *
+recursive-include eventyay_paypal/locale *

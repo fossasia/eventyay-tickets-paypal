@@ -1,0 +1,44 @@
+[project]
+name = "eventyay-paypal"
+dynamic = ["version"]
+description = "Integrates eventyay-tickets with paypal"
+readme = "README.rst"
+requires-python = ">=3.11"
+license = {file = "LICENSE"}
+keywords = ["eventyay-tickets", "eventyay_paypal", "paypal", "eventyay"]
+authors = [
+    {name = "eventyay team", email = "support@eventyay.com"},
+]
+maintainers = [
+    {name = "eventyay team", email = "support@eventyay.com"},
+]
+
+dependencies = [
+    'paypalhttp==1.0.1',
+    'paypalrestsdk==1.13.3',
+]
+
+[project.entry-points."pretix.plugin"]
+eventyay_paypal = "eventyay_paypal:PretixPluginMeta"
+
+[project.entry-points."distutils.commands"]
+build = "pretix_plugin_build.build:CustomBuild"
+
+[build-system]
+requires = [
+    "setuptools",
+    "pretix-plugin-build",
+]
+
+[project.urls]
+homepage = "https://github.com/fossasia/eventyay-tickets"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.dynamic]
+version = {attr = "eventyay_paypal.__version__"}
+
+[tool.setuptools.packages.find]
+include = ["eventyay*"]
+namespaces = false
