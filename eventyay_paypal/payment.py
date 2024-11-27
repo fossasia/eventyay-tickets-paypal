@@ -27,7 +27,7 @@ from pretix.multidomain.urlreverse import build_absolute_uri
 from .models import ReferencedPayPalObject
 from .paypal_rest import PaypalRequestHandler
 
-logger = logging.getLogger("pretix.plugins.paypal")
+logger = logging.getLogger("pretix.plugins.eventyay_paypal")
 
 SUPPORTED_CURRENCIES = [
     "AUD",
@@ -195,7 +195,7 @@ class Paypal(BasePaymentProvider):
                 ],
                 "products": ["EXPRESS_CHECKOUT"],
                 "partner_config_override": {
-                    "return_url": build_global_uri("plugins:paypal:oauth.return")
+                    "return_url": build_global_uri("plugins:eventyay_paypal:oauth.return")
                 },
                 "legal_consents": [{"type": "SHARE_DATA_CONSENT", "granted": True}],
                 "tracking_id": request.session["payment_paypal_tracking_id"],
@@ -254,7 +254,7 @@ class Paypal(BasePaymentProvider):
                     "Please configure a PayPal Webhook to the following endpoint in order to automatically cancel orders "
                     "when payments are refunded externally. And set webhook id to make it work properly."
                 ),
-                build_global_uri("plugins:paypal:webhook"),
+                build_global_uri("plugins:eventyay_paypal:webhook"),
             )
 
         if self.event.currency not in SUPPORTED_CURRENCIES:
@@ -359,10 +359,10 @@ class Paypal(BasePaymentProvider):
                             "payment_method_preference": "UNRESTRICTED",
                             "landing_page": "LOGIN",
                             "return_url": build_absolute_uri(
-                                request.event, "plugins:paypal:return", kwargs=kwargs
+                                request.event, "plugins:eventyay_paypal:return", kwargs=kwargs
                             ),
                             "cancel_url": build_absolute_uri(
-                                request.event, "plugins:paypal:abort", kwargs=kwargs
+                                request.event, "plugins:eventyay_paypal:abort", kwargs=kwargs
                             ),
                         }
                     }
@@ -433,7 +433,7 @@ class Paypal(BasePaymentProvider):
                 if request.session.get("iframe_session", False):
                     signer = signing.Signer(salt="safe-redirect")
                     return (
-                        build_absolute_uri(request.event, "plugins:paypal:redirect")
+                        build_absolute_uri(request.event, "plugins:eventyay_paypal:redirect")
                         + "?url="
                         + urllib.parse.quote(signer.sign(link["href"]))
                     )
@@ -841,10 +841,10 @@ class Paypal(BasePaymentProvider):
                             "payment_method_preference": "UNRESTRICTED",
                             "landing_page": "LOGIN",
                             "return_url": build_absolute_uri(
-                                request.event, "plugins:paypal:return"
+                                request.event, "plugins:eventyay_paypal:return"
                             ),
                             "cancel_url": build_absolute_uri(
-                                request.event, "plugins:paypal:abort"
+                                request.event, "plugins:eventyay_paypal:abort"
                             ),
                         }
                     }
@@ -884,7 +884,7 @@ class Paypal(BasePaymentProvider):
 
         for le in (
             obj.order.all_logentries()
-            .filter(action_type="pretix.plugins.paypal.event")
+            .filter(action_type="pretix.plugins.eventyay_paypal.event")
             .exclude(data="")
         ):
             d = le.parsed_data

@@ -12,7 +12,7 @@ import requests
 from cryptography.fernet import Fernet
 from django.core.cache import cache
 
-logger = logging.getLogger("pretix.plugins.paypal")
+logger = logging.getLogger("pretix.plugins.eventyay_paypal")
 
 
 class PaypalRequestHandler:

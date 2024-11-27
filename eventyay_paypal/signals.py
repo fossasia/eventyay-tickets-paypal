@@ -19,7 +19,7 @@ def register_payment_provider(sender, **kwargs):
 
 @receiver(signal=logentry_display, dispatch_uid="paypal_logentry_display")
 def pretixcontrol_logentry_display(sender, logentry, **kwargs):
-    if logentry.action_type != 'pretix.plugins.paypal.event':
+    if logentry.action_type != 'pretix.plugins.eventyay_paypal.event':
         return
 
     data = json.loads(logentry.data)
@@ -44,17 +44,17 @@ def pretixcontrol_logentry_display(sender, logentry, **kwargs):
 
 @receiver(signal=requiredaction_display, dispatch_uid="paypal_requiredaction_display")
 def pretixcontrol_action_display(sender, action, request, **kwargs):
-    if not action.action_type.startswith('pretix.plugins.paypal'):
+    if not action.action_type.startswith('pretix.plugins.eventyay_paypal'):
         return
 
     data = json.loads(action.data)
 
-    if action.action_type == 'pretix.plugins.paypal.refund':
-        template = get_template('plugins/paypal/action_refund.html')
-    elif action.action_type == 'pretix.plugins.paypal.overpaid':
-        template = get_template('plugins/paypal/action_overpaid.html')
-    elif action.action_type == 'pretix.plugins.paypal.double':
-        template = get_template('plugins/paypal/action_double.html')
+    if action.action_type == 'pretix.plugins.eventyay_paypal.refund':
+        template = get_template('plugins/eventyay_paypal/action_refund.html')
+    elif action.action_type == 'pretix.plugins.eventyay_paypal.overpaid':
+        template = get_template('plugins/eventyay_paypal/action_overpaid.html')
+    elif action.action_type == 'pretix.plugins.eventyay_paypal.double':
+        template = get_template('plugins/eventyay_paypal/action_double.html')
 
     ctx = {'data': data, 'event': sender, 'action': action}
     return template.render(ctx, request)

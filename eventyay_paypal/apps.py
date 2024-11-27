@@ -3,7 +3,6 @@ from django.utils.translation import gettext_lazy as _
 
 from . import __version__
 
-
 class PaypalPluginApp(AppConfig):
     default = True
     name = 'eventyay_paypal'

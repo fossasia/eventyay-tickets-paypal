@@ -22,7 +22,7 @@ from pretix.multidomain.urlreverse import eventreverse
 from .models import ReferencedPayPalObject
 from .payment import Paypal
 
-logger = logging.getLogger("pretix.plugins.paypal")
+logger = logging.getLogger("pretix.plugins.eventyay_paypal")
 
 
 @xframe_options_exempt
@@ -352,7 +352,7 @@ def webhook(request, *args, **kwargs):
     if order_detail is None or payment is None:
         return HttpResponse("Order or payment not found", status=200)
 
-    payment.order.log_action("pretix.plugins.paypal.event", data=event_json)
+    payment.order.log_action("pretix.plugins.eventyay_paypal.event", data=event_json)
 
     if payment.state == OrderPayment.PAYMENT_STATE_CONFIRMED and order_detail[
         "status"
