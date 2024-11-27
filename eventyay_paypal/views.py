@@ -14,13 +14,13 @@ from django.views.decorators.clickjacking import xframe_options_exempt
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 from django_scopes import scopes_disabled
-
 from pretix.base.models import Event, Order, OrderPayment, OrderRefund, Quota
 from pretix.base.payment import PaymentException
 from pretix.control.permissions import event_permission_required
 from pretix.multidomain.urlreverse import eventreverse
-from pretix.plugins.paypal.models import ReferencedPayPalObject
-from pretix.plugins.paypal.payment import Paypal
+
+from .models import ReferencedPayPalObject
+from .payment import Paypal
 
 logger = logging.getLogger("pretix.plugins.paypal")
 

@@ -13,9 +13,9 @@ from django.template.loader import get_template
 from django.urls import reverse
 from django.utils.crypto import get_random_string
 from django.utils.timezone import now
-from django.utils.translation import gettext as __, gettext_lazy as _
+from django.utils.translation import gettext as __
+from django.utils.translation import gettext_lazy as _
 from i18nfield.strings import LazyI18nString
-
 from pretix.base.decimal import round_decimal
 from pretix.base.models import Event, Order, OrderPayment, OrderRefund, Quota
 from pretix.base.payment import BasePaymentProvider, PaymentException
@@ -23,8 +23,9 @@ from pretix.base.services.mail import SendMailException
 from pretix.base.settings import SettingsSandbox
 from pretix.helpers.urls import build_absolute_uri as build_global_uri
 from pretix.multidomain.urlreverse import build_absolute_uri
-from pretix.plugins.paypal.models import ReferencedPayPalObject
-from pretix.plugins.paypal.paypal_rest import PaypalRequestHandler
+
+from .models import ReferencedPayPalObject
+from .paypal_rest import PaypalRequestHandler
 
 logger = logging.getLogger("pretix.plugins.paypal")
 

@@ -5,12 +5,10 @@ from django import forms
 from django.dispatch import receiver
 from django.template.loader import get_template
 from django.utils.translation import gettext_lazy as _
-
 from pretix.base.forms import SecretKeySettingsField
-from pretix.base.signals import (
-    logentry_display, register_global_settings, register_payment_providers,
-    requiredaction_display,
-)
+from pretix.base.signals import (logentry_display, register_global_settings,
+                                 register_payment_providers,
+                                 requiredaction_display)
 
 
 @receiver(register_payment_providers, dispatch_uid="payment_paypal")

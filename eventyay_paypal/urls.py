@@ -1,11 +1,9 @@
 from django.urls import include
 from django.urls import re_path as url
-
 from pretix.multidomain import event_url
 
-from .views import (
-    abort, oauth_disconnect, oauth_return, redirect_view, success, webhook,
-)
+from .views import (abort, oauth_disconnect, oauth_return, redirect_view,
+                    success, webhook)
 
 event_patterns = [
     url(r'^paypal/', include([
