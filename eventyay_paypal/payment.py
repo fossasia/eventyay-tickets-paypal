@@ -240,7 +240,7 @@ class Paypal(BasePaymentProvider):
                     "<button formaction='{}' class='btn btn-danger'>{}</button>"
                 ).format(
                     reverse(
-                        "plugins:paypal:oauth.disconnect",
+                        "plugins:eventyay_paypal:oauth.disconnect",
                         kwargs={
                             "organizer": self.event.organizer.slug,
                             "event": self.event.slug,
