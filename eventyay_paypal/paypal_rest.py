@@ -196,9 +196,7 @@ class PaypalRequestHandler:
             if access_token_response.get("errors"):
                 errors = access_token_response.get("errors")
                 logger.error(
-                    "Error getting access token from Paypal: {}".format(
-                        errors["reason"]
-                    )
+                    "Error getting access token from Paypal: %s", errors["reason"]
                 )
                 return None
 

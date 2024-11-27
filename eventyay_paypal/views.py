@@ -225,9 +225,7 @@ def check_webhook_signature(request, event, event_json, prov) -> bool:
         or verify_response.get("response", {}).get("verification_status") == "FAILURE"
     ):
         errors = verify_response.get("errors")
-        logger.error(
-            "Unable to verify signature of webhook: {}".format(errors["reason"])
-        )
+        logger.error("Unable to verify signature of webhook: %s", errors["reason"])
         return False
     return True
 
@@ -299,8 +297,8 @@ def extract_order_and_payment(payment_id, event, event_json, prov, rpo=None):
     order_response = prov.paypal_request_handler.get_order(order_id=payment_id)
     if order_response.get("errors"):
         errors = order_response.get("errors")
-        logger.error("Paypal error on webhook: {}".format(errors["reason"]))
-        logger.exception("PayPal error on webhook. Event data: %s" % str(event_json))
+        logger.error("Paypal error on webhook: %s", errors["reason"])
+        logger.exception("PayPal error on webhook. Event data: %s", str(event_json))
         return order_detail, payment
 
     order_detail = order_response.get("response")
@@ -367,9 +365,9 @@ def webhook(request, *args, **kwargs):
 
             if refund_response.get("errors"):
                 errors = refund_response.get("errors")
-                logger.error("Paypal error on webhook: {}".format(errors["reason"]))
+                logger.error("Paypal error on webhook: %s", errors["reason"])
                 logger.exception(
-                    "PayPal error on webhook. Event data: %s" % str(event_json)
+                    "PayPal error on webhook. Event data: %s", str(event_json)
                 )
                 return HttpResponse(
                     "Refund {} not found".format(event_json["resource"]["id"]),
@@ -440,9 +438,7 @@ def webhook(request, *args, **kwargs):
                 logger.error(
                     "Error executing approved payment in webhook: payment not yet populated."
                 )
-                logger.exception(
-                    "Unable to execute payment in webhook: {}".format(str(e))
-                )
+                logger.exception("Unable to execute payment in webhook: %s", str(e))
         elif order_detail["status"] == "COMPLETED":
             captured = False
             captures_completed = True

@@ -140,7 +140,7 @@ class Paypal(BasePaymentProvider):
                         max_length=20,
                         min_length=10,
                     ),
-                )
+                ),
             ]
 
         extra_fields = [
@@ -197,7 +197,7 @@ class Paypal(BasePaymentProvider):
                     "return_url": build_global_uri("plugins:paypal:oauth.return")
                 },
                 "legal_consents": [{"type": "SHARE_DATA_CONSENT", "granted": True}],
-                "tracking_id": request.session["payment_paypal_tracking_id"]
+                "tracking_id": request.session["payment_paypal_tracking_id"],
             },
         )
 
@@ -303,7 +303,7 @@ class Paypal(BasePaymentProvider):
             kwargs["cart_namespace"] = request.resolver_match.kwargs["cart_namespace"]
 
         payee = {}
-        if self.settings.get('client_id') or self.settings.get('secret'):
+        if self.settings.get("client_id") or self.settings.get("secret"):
             # In case organizer set their own info
             # Check undeleted infos and remove theme
             if request.event.settings.payment_paypal_connect_user_id:
@@ -424,7 +424,7 @@ class Paypal(BasePaymentProvider):
     def _create_order(self, request, order):
         if order["status"] not in ("CREATED", "PAYER_ACTION_REQUIRED"):
             messages.error(request, _("We had trouble communicating with PayPal"))
-            logger.error("Invalid order state: " + str(order))
+            logger.error("Invalid order state: %s", str(order))
             return
         request.session["payment_paypal_order_id"] = order["id"]
         for link in order["links"]:
@@ -463,9 +463,9 @@ class Paypal(BasePaymentProvider):
         if order_response.get("errors"):
             errors = order_response.get("errors")
             logger.error(
-                "Unable to retrieve order {} from Paypal: {}".format(
-                    order_id, errors["reason"]
-                )
+                "Unable to retrieve order %s from Paypal: %s",
+                order_id,
+                errors["reason"],
             )
             payment.fail(
                 info={
@@ -498,8 +498,9 @@ class Paypal(BasePaymentProvider):
             != self.event.currency
         ):
             logger.error(
-                "Value mismatch: Payment %s vs paypal trans %s"
-                % (payment.id, str(order_detail))
+                "Value mismatch: Payment %s vs paypal trans %s",
+                payment.id,
+                str(order_detail),
             )
             payment.fail(
                 info={
@@ -536,9 +537,7 @@ class Paypal(BasePaymentProvider):
             if update_reponse.get("errors"):
                 errors = update_reponse.get("errors")
                 logger.error(
-                    "Unable to patch order {} in Paypal: {}".format(
-                        order_id, errors["reason"]
-                    )
+                    "Unable to patch order %s in Paypal: %s", order_id, errors["reason"]
                 )
                 payment.fail(
                     info={
@@ -558,9 +557,9 @@ class Paypal(BasePaymentProvider):
             if capture_response.get("errors"):
                 errors = update_reponse.get("errors")
                 logger.error(
-                    "Unable to capture order {} in Paypal: {}".format(
-                        order_id, errors["reason"]
-                    )
+                    "Unable to capture order %s in Paypal: %s",
+                    order_id,
+                    errors["reason"],
                 )
                 payment.fail(
                     info={
@@ -602,7 +601,7 @@ class Paypal(BasePaymentProvider):
         payment.refresh_from_db()
         if captured_order["status"] != "COMPLETED":
             payment.fail(info=captured_order)
-            logger.error("Invalid state: %s" % repr(captured_order))
+            logger.error("Invalid state: %s", repr(captured_order))
             raise PaymentException(
                 _(
                     "We were unable to process your payment. See below for details on how to proceed."
@@ -718,7 +717,7 @@ class Paypal(BasePaymentProvider):
         )
         if refund_payment.get("errors"):
             errors = refund_payment.get("errors")
-            logger.error("execute_refund: {}".format(errors["reason"]))
+            logger.error("execute_refund: %s", errors["reason"])
             refund.order.log_action(
                 "pretix.event.order.refund.failed",
                 {
@@ -786,7 +785,7 @@ class Paypal(BasePaymentProvider):
 
     def payment_prepare(self, request, payment_obj):
         payee = {}
-        if self.settings.get('client_id') or self.settings.get('secret'):
+        if self.settings.get("client_id") or self.settings.get("secret"):
             # In case organizer set their own info
             # Check undeleted infos and remove theme
             if request.event.settings.payment_paypal_connect_user_id:
