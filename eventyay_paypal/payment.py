@@ -138,6 +138,7 @@ class Paypal(BasePaymentProvider):
                     "webhook_id",
                     forms.CharField(
                         label=_("Webhook ID"),
+                        initial="test_webhook_id",
                         max_length=20,
                         min_length=10,
                     ),
