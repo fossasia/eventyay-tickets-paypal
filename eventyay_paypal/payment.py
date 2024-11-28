@@ -294,7 +294,7 @@ class Paypal(BasePaymentProvider):
         )
 
     def payment_form_render(self, request) -> str:
-        template = get_template("pretixplugins/paypal/checkout_payment_form.html")
+        template = get_template("plugins/paypal/checkout_payment_form.html")
         ctx = {"request": request, "event": self.event, "settings": self.settings}
         return template.render(ctx)
 
@@ -313,7 +313,6 @@ class Paypal(BasePaymentProvider):
                 del request.event.settings.payment_paypal_merchant_id
         elif request.event.settings.payment_paypal_connect_user_id:
             payee = {
-                "email_address": request.event.settings.payment_paypal_connect_user_id,
                 "merchant_id": request.event.settings.payment_paypal_merchant_id,
             }
 
@@ -445,7 +444,7 @@ class Paypal(BasePaymentProvider):
         Returns the HTML that should be displayed when the user selected this provider
         on the 'confirm order' page.
         """
-        template = get_template("pretixplugins/paypal/checkout_payment_confirm.html")
+        template = get_template("plugins/paypal/checkout_payment_confirm.html")
         ctx = {"request": request, "event": self.event, "settings": self.settings}
         return template.render(ctx)
 
@@ -641,7 +640,7 @@ class Paypal(BasePaymentProvider):
                 retry = False
         except KeyError:
             pass
-        template = get_template("pretixplugins/paypal/pending.html")
+        template = get_template("plugins/paypal/pending.html")
         ctx = {
             "request": request,
             "event": self.event,
@@ -674,7 +673,7 @@ class Paypal(BasePaymentProvider):
         }
 
     def payment_control_render(self, request: HttpRequest, payment: OrderPayment):
-        template = get_template("pretixplugins/paypal/control.html")
+        template = get_template("plugins/paypal/control.html")
         order_id = self.matching_id(payment)
         ctx = {
             "request": request,
@@ -795,7 +794,6 @@ class Paypal(BasePaymentProvider):
                 del request.event.settings.payment_paypal_merchant_id
         elif request.event.settings.payment_paypal_connect_user_id:
             payee = {
-                "email_address": request.event.settings.payment_paypal_connect_user_id,
                 "merchant_id": request.event.settings.payment_paypal_merchant_id,
             }
 

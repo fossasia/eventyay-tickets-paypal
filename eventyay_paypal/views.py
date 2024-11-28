@@ -35,7 +35,7 @@ def redirect_view(request, *args, **kwargs):
 
     r = render(
         request,
-        "pretixplugins/paypal/redirect.html",
+        "plugins/paypal/redirect.html",
         {
             "url": url,
         },

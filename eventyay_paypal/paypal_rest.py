@@ -182,7 +182,7 @@ class PaypalRequestHandler:
         Scope: order, invoice, ...
         """
 
-        def request_new_access_token():
+        def request_new_access_token() -> dict:
             access_token_response = self.request(
                 url=self.oauth_url,
                 method="POST",
@@ -198,7 +198,7 @@ class PaypalRequestHandler:
                 logger.error(
                     "Error getting access token from Paypal: %s", errors["reason"]
                 )
-                return None
+                return {}
 
             access_token_data = access_token_response.get("response")
             # Add this key value to check for token expiration later

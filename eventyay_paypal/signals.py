@@ -50,11 +50,11 @@ def pretixcontrol_action_display(sender, action, request, **kwargs):
     data = json.loads(action.data)
 
     if action.action_type == 'pretix.plugins.eventyay_paypal.refund':
-        template = get_template('plugins/eventyay_paypal/action_refund.html')
+        template = get_template('plugins/paypal/action_refund.html')
     elif action.action_type == 'pretix.plugins.eventyay_paypal.overpaid':
-        template = get_template('plugins/eventyay_paypal/action_overpaid.html')
+        template = get_template('plugins/paypal/action_overpaid.html')
     elif action.action_type == 'pretix.plugins.eventyay_paypal.double':
-        template = get_template('plugins/eventyay_paypal/action_double.html')
+        template = get_template('plugins/paypal/action_double.html')
 
     ctx = {'data': data, 'event': sender, 'action': action}
     return template.render(ctx, request)
