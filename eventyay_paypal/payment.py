@@ -460,24 +460,8 @@ class Paypal(BasePaymentProvider):
         return template.render(ctx)
 
     def execute_payment(self, request: HttpRequest, payment: OrderPayment):
-        order_id = request.session.get("payment_paypal_order_id", "")
-        paypal_payer = request.session.get("payment_paypal_payer", "")
-        if order_id == "" or paypal_payer == "":
-            raise PaymentException(
-                _(
-                    "We were unable to process your payment. See below for details on how to "
-                    "proceed."
-                )
-            )
-
-        order_response = self.paypal_request_handler.get_order(order_id=order_id)
-        if order_response.get("errors"):
-            errors = order_response.get("errors")
-            logger.error(
-                "Unable to retrieve order %s from Paypal: %s",
-                order_id,
-                errors["reason"],
-            )
+        def handle_paypal_error(errors, order_id, payment, message):
+            logger.error(message, order_id, errors["reason"])
             payment.fail(
                 info={
                     "error": {
@@ -488,10 +472,24 @@ class Paypal(BasePaymentProvider):
                     }
                 }
             )
+            raise PaymentException(_("Unable to process your payment with Paypal"))
+
+        order_id = request.session.get("payment_paypal_order_id", "")
+        paypal_payer = request.session.get("payment_paypal_payer", "")
+        if not order_id or not paypal_payer:
             raise PaymentException(
                 _(
-                    "An error occurred while communicating with PayPal, please try again."
+                    "We were unable to process your payment. See below for details on how to proceed."
                 )
+            )
+
+        order_response = self.paypal_request_handler.get_order(order_id=order_id)
+        if order_response.get("errors"):
+            handle_paypal_error(
+                order_response.get("errors"),
+                order_id,
+                payment,
+                "Unable to retrieve order %s from Paypal: %s",
             )
 
         order_detail = order_response.get("response")
@@ -499,6 +497,7 @@ class Paypal(BasePaymentProvider):
             ReferencedPayPalObject.objects.get_or_create(
                 order=payment.order, payment=payment, reference=order_id
             )
+
         if (
             str(order_detail["purchase_units"][0]["amount"]["value"])
             != str(payment.amount)
@@ -520,19 +519,16 @@ class Paypal(BasePaymentProvider):
             )
             raise PaymentException(
                 _(
-                    "We were unable to process your payment. See below for details on how to "
-                    "proceed."
+                    "We were unable to process your payment. See below for details on how to proceed."
                 )
             )
 
         if order_detail["status"] == "APPROVED":
-            description = (
-                f"{self.settings.prefix} " if self.settings.prefix else ""
-            ) + __("Order {order} for {event}").format(
-                event=request.event.name, order=payment.order.code
-            )
+            description = (f"{self.settings.prefix} " if self.settings.prefix else "") + __(
+                "Order {order} for {event}"
+            ).format(event=request.event.name, order=payment.order.code)
 
-            update_reponse = self.paypal_request_handler.update_order(
+            update_response = self.paypal_request_handler.update_order(
                 order_id=order_id,
                 update_data=[
                     {
@@ -542,44 +538,22 @@ class Paypal(BasePaymentProvider):
                     }
                 ],
             )
-            if update_reponse.get("errors"):
-                errors = update_reponse.get("errors")
-                logger.error(
-                    "Unable to patch order %s in Paypal: %s", order_id, errors["reason"]
-                )
-                payment.fail(
-                    info={
-                        "error": {
-                            "name": errors["type"],
-                            "message": errors["reason"],
-                            "exception": errors["exception"],
-                            "order_id": order_id,
-                        },
-                    }
-                )
-                raise PaymentException(_("Unable to process your payment with Paypal"))
-
-            capture_response = self.paypal_request_handler.capture_order(
-                order_id=order_id
-            )
-            if capture_response.get("errors"):
-                errors = update_reponse.get("errors")
-                logger.error(
-                    "Unable to capture order %s in Paypal: %s",
+            if update_response.get("errors"):
+                handle_paypal_error(
+                    update_response.get("errors"),
                     order_id,
-                    errors["reason"],
+                    payment,
+                    "Unable to patch order %s in Paypal: %s",
                 )
-                payment.fail(
-                    info={
-                        "error": {
-                            "name": errors["type"],
-                            "message": errors["reason"],
-                            "exception": errors["exception"],
-                            "order_id": order_id,
-                        },
-                    }
+
+            capture_response = self.paypal_request_handler.capture_order(order_id=order_id)
+            if capture_response.get("errors"):
+                handle_paypal_error(
+                    capture_response.get("errors"),
+                    order_id,
+                    payment,
+                    "Unable to capture order %s in Paypal: %s",
                 )
-                raise PaymentException(_("Unable to process your payment with Paypal"))
 
             captured_order = capture_response.get("response")
             for purchase_unit in captured_order["purchase_units"]:
@@ -596,8 +570,7 @@ class Paypal(BasePaymentProvider):
                         messages.warning(
                             request,
                             _(
-                                "PayPal has not yet approved the payment. We will inform you as "
-                                "soon as the payment completed."
+                                "PayPal has not yet approved the payment. We will inform you as soon as the payment completed."
                             ),
                         )
                         payment.info = json.dumps(captured_order)
@@ -627,7 +600,6 @@ class Paypal(BasePaymentProvider):
             payment.confirm()
         except Quota.QuotaExceededException as e:
             raise PaymentException(str(e)) from e
-
         except SendMailException:
             messages.warning(
                 request, _("There was an error sending the confirmation mail.")
@@ -906,24 +878,22 @@ class Paypal(BasePaymentProvider):
 
     def render_invoice_text(self, order: Order, payment: OrderPayment) -> str:
         if order.status == Order.STATUS_PAID:
-            if payment.info_data.get("id", None):
+            if payment.info_data.get('id', None):
                 try:
-                    return "{}\r\n{}: {}\r\n{}: {}".format(
-                        _("The payment for this invoice has already been received."),
-                        _("PayPal payment ID"),
-                        payment.info_data["id"],
-                        _("PayPal order ID"),
-                        payment.info_data["purchase_units"][0]["payments"]["captures"][
-                            0
-                        ]["id"],
+                    return '{}\r\n{}: {}\r\n{}: {}'.format(
+                        _('The payment for this invoice has already been received.'),
+                        _('PayPal payment ID'),
+                        payment.info_data['id'],
+                        _('PayPal sale ID'),
+                        payment.info_data['transactions'][0]['related_resources'][0]['sale']['id']
                     )
                 except (KeyError, IndexError):
-                    return "{}\r\n{}: {}".format(
-                        _("The payment for this invoice has already been received."),
-                        _("PayPal payment ID"),
-                        payment.info_data["id"],
+                    return '{}\r\n{}: {}'.format(
+                        _('The payment for this invoice has already been received.'),
+                        _('PayPal payment ID'),
+                        payment.info_data['id']
                     )
             else:
                 return super().render_invoice_text(order, payment)
 
-        return self.settings.get("_invoice_text", as_type=LazyI18nString, default="")
+        return self.settings.get('_invoice_text', as_type=LazyI18nString, default='')

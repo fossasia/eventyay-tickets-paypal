@@ -1,3 +1,4 @@
+import contextlib
 import json
 import logging
 from datetime import datetime, timedelta, timezone
@@ -341,7 +342,7 @@ def webhook(request, *args, **kwargs):
     prov = Paypal(event)
 
     # Verify signature
-    if check_webhook_signature(request, event, event_json, prov) is False:
+    if not check_webhook_signature(request, event, event_json, prov):
         return HttpResponse("Unable to verify signature of webhook", status=200)
 
     order_detail, payment = extract_order_and_payment(
@@ -352,64 +353,58 @@ def webhook(request, *args, **kwargs):
 
     payment.order.log_action("pretix.plugins.eventyay_paypal.event", data=event_json)
 
-    if payment.state == OrderPayment.PAYMENT_STATE_CONFIRMED and order_detail[
-        "status"
-    ] in ("PARTIALLY_REFUNDED", "REFUNDED", "COMPLETED"):
-        if event_json["resource_type"] == "refund":
-            refund_response = prov.paypal_request_handler.get_refund_detail(
-                refund_id=event_json["resource"]["id"],
-                merchant_id=event.settings.payment_paypal_merchant_id,
+    def handle_refund():
+        refund_response = prov.paypal_request_handler.get_refund_detail(
+            refund_id=event_json["resource"]["id"],
+            merchant_id=event.settings.payment_paypal_merchant_id,
+        )
+        if refund_response.get("errors"):
+            errors = refund_response.get("errors")
+            logger.error("Paypal error on webhook: %s", errors["reason"])
+            logger.exception("PayPal error on webhook. Event data: %s", str(event_json))
+            return HttpResponse(
+                f'Refund {event_json["resource"]["id"]} not found', status=200
             )
 
-            if refund_response.get("errors"):
-                errors = refund_response.get("errors")
-                logger.error("Paypal error on webhook: %s", errors["reason"])
-                logger.exception(
-                    "PayPal error on webhook. Event data: %s", str(event_json)
-                )
-                return HttpResponse(
-                    "Refund {} not found".format(event_json["resource"]["id"]),
-                    status=200,
-                )
+        refund_detail = refund_response.get("response")
+        known_refunds = {
+            refund.info_data.get("id"): refund for refund in payment.refunds.all()
+        }
+        if refund_detail["id"] not in known_refunds:
+            payment.create_external_refund(
+                amount=abs(Decimal(refund_detail["amount"]["value"])),
+                info=json.dumps(refund_detail),
+            )
+        elif (
+            known_refunds.get(refund_detail["id"]).state
+            in (OrderRefund.REFUND_STATE_CREATED, OrderRefund.REFUND_STATE_TRANSIT)
+            and refund_detail["status"] == "COMPLETED"
+        ):
+            known_refunds.get(refund_detail["id"]).done()
 
-            refund_detail = refund_response.get("response")
-
-            known_refunds = {
-                refund.info_data.get("id"): refund for refund in payment.refunds.all()
-            }
-            if refund_detail["id"] not in known_refunds:
-                payment.create_external_refund(
-                    amount=abs(Decimal(refund_detail["amount"]["value"])),
-                    info=json.dumps(refund_detail),
+        if (
+            "seller_payable_breakdown" in refund_detail
+            and "total_refunded_amount" in refund_detail["seller_payable_breakdown"]
+        ):
+            known_sum = payment.refunds.filter(
+                state__in=(
+                    OrderRefund.REFUND_STATE_DONE,
+                    OrderRefund.REFUND_STATE_TRANSIT,
+                    OrderRefund.REFUND_STATE_CREATED,
+                    OrderRefund.REFUND_SOURCE_EXTERNAL,
                 )
-            elif (
-                known_refunds.get(refund_detail["id"]).state
-                in (OrderRefund.REFUND_STATE_CREATED, OrderRefund.REFUND_STATE_TRANSIT)
-                and refund_detail["status"] == "COMPLETED"
-            ):
-                known_refunds.get(refund_detail["id"]).done()
+            ).aggregate(s=Sum("amount"))["s"] or Decimal("0.00")
+            total_refunded_amount = Decimal(
+                refund_detail["seller_payable_breakdown"]["total_refunded_amount"][
+                    "value"
+                ]
+            )
+            if known_sum < total_refunded_amount:
+                payment.create_external_refund(amount=total_refunded_amount - known_sum)
 
-            if (
-                "seller_payable_breakdown" in refund_detail
-                and "total_refunded_amount" in refund_detail["seller_payable_breakdown"]
-            ):
-                known_sum = payment.refunds.filter(
-                    state__in=(
-                        OrderRefund.REFUND_STATE_DONE,
-                        OrderRefund.REFUND_STATE_TRANSIT,
-                        OrderRefund.REFUND_STATE_CREATED,
-                        OrderRefund.REFUND_SOURCE_EXTERNAL,
-                    )
-                ).aggregate(s=Sum("amount"))["s"] or Decimal("0.00")
-                total_refunded_amount = Decimal(
-                    refund_detail["seller_payable_breakdown"]["total_refunded_amount"][
-                        "value"
-                    ]
-                )
-                if known_sum < total_refunded_amount:
-                    payment.create_external_refund(
-                        amount=total_refunded_amount - known_sum
-                    )
+    def handle_payment_state_confirmed():
+        if event_json["resource_type"] == "refund":
+            handle_refund()
         elif order_detail["status"] == "REFUNDED":
             known_sum = payment.refunds.filter(
                 state__in=(
@@ -419,15 +414,10 @@ def webhook(request, *args, **kwargs):
                     OrderRefund.REFUND_SOURCE_EXTERNAL,
                 )
             ).aggregate(s=Sum("amount"))["s"] or Decimal("0.00")
-
             if known_sum < payment.amount:
                 payment.create_external_refund(amount=payment.amount - known_sum)
-    elif payment.state in (
-        OrderPayment.PAYMENT_STATE_PENDING,
-        OrderPayment.PAYMENT_STATE_CREATED,
-        OrderPayment.PAYMENT_STATE_CANCELED,
-        OrderPayment.PAYMENT_STATE_FAILED,
-    ):
+
+    def handle_payment_state_pending():
         if order_detail["status"] == "APPROVED":
             try:
                 request.session["payment_paypal_order_id"] = payment.info_data.get("id")
@@ -442,15 +432,14 @@ def webhook(request, *args, **kwargs):
             captures_completed = True
             for purchase_unit in order_detail["purchase_units"]:
                 for capture in purchase_unit["payments"]["captures"]:
-                    try:
+                    with contextlib.suppress(
+                        ReferencedPayPalObject.MultipleObjectsReturned
+                    ):
                         ReferencedPayPalObject.objects.get_or_create(
                             order=payment.order,
                             payment=payment,
                             reference=capture["id"],
                         )
-                    except ReferencedPayPalObject.MultipleObjectsReturned:
-                        pass
-
                     if capture["status"] in (
                         "COMPLETED",
                         "REFUNDED",
@@ -460,12 +449,22 @@ def webhook(request, *args, **kwargs):
                     else:
                         captures_completed = False
             if captured and captures_completed:
-                try:
+                with contextlib.suppress(Quota.QuotaExceededException):
                     payment.info = json.dumps(order_detail)
                     payment.save(update_fields=["info"])
                     payment.confirm()
-                except Quota.QuotaExceededException:
-                    pass
+
+    if payment.state == OrderPayment.PAYMENT_STATE_CONFIRMED and order_detail[
+        "status"
+    ] in ("PARTIALLY_REFUNDED", "REFUNDED", "COMPLETED"):
+        handle_payment_state_confirmed()
+    elif payment.state in (
+        OrderPayment.PAYMENT_STATE_PENDING,
+        OrderPayment.PAYMENT_STATE_CREATED,
+        OrderPayment.PAYMENT_STATE_CANCELED,
+        OrderPayment.PAYMENT_STATE_FAILED,
+    ):
+        handle_payment_state_pending()
 
     return HttpResponse(status=200)
 
