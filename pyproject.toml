@@ -13,10 +13,7 @@ maintainers = [
     {name = "eventyay team", email = "support@eventyay.com"},
 ]
 
-dependencies = [
-    'paypalhttp==1.0.1',
-    'paypalrestsdk==1.13.3',
-]
+dependencies = []
 
 [project.entry-points."pretix.plugin"]
 eventyay_paypal = "eventyay_paypal:PretixPluginMeta"
