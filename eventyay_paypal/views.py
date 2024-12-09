@@ -143,11 +143,10 @@ def success(request, *args, **kwargs):
             )
             + ("?paid=yes" if payment.order.status == Order.STATUS_PAID else "")
         )
-    else:
-        urlkwargs["step"] = "confirm"
-        return redirect(
-            eventreverse(request.event, "presale:event.checkout", kwargs=urlkwargs)
-        )
+    urlkwargs["step"] = "confirm"
+    return redirect(
+        eventreverse(request.event, "presale:event.checkout", kwargs=urlkwargs)
+    )
 
 
 def abort(request, *args, **kwargs):
@@ -195,13 +194,13 @@ def check_webhook_signature(request, event, event_json, prov) -> bool:
         "PAYPAL-TRANSMISSION-SIG",
         "PAYPAL-TRANSMISSION-TIME",
     ]
-    if not all(header in request.headers for header in required_headers):
+    if any(header not in request.headers for header in required_headers):
         logger.error("Paypal webhook missing required headers")
         return False
 
     # Prevent replay attacks: check timestamp
     current_time = datetime.now(timezone.utc)
-    transmission_time = datetime.isoformat(
+    transmission_time = datetime.fromisoformat(
         request.headers.get("PAYPAL-TRANSMISSION-TIME")
     )
     if current_time - transmission_time > timedelta(minutes=7):
@@ -252,13 +251,12 @@ def parse_webhook_event(request, event_json):
     references = [payment_id]
 
     # For filtering reference, there are a lot of ids appear within json__event
-    ref_order_id = (
+    if ref_order_id := (
         event_json["resource"]
         .get("supplementary_data", {})
         .get("related_ids", {})
         .get("order_id")
-    )
-    if ref_order_id:
+    ):
         references.append(ref_order_id)
 
     # Grasp the corresponding RPO

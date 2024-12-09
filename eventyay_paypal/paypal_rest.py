@@ -129,8 +129,7 @@ class PaypalRequestHandler:
         expiration_time = (
             access_token_data["created_at"] + access_token_data["expires_in"]
         )
-        is_expired = (current_time + buffer_time) > expiration_time
-        return is_expired
+        return (current_time + buffer_time) > expiration_time
 
     @staticmethod
     def encode_b64(connect_client_id: str, connect_secret_key: str) -> str:
@@ -138,15 +137,14 @@ class PaypalRequestHandler:
         key = f"{connect_client_id}:{connect_secret_key}"
         key_bytes = key.encode("ascii")
         base64_bytes = base64.b64encode(key_bytes)
-        base64_string = base64_bytes.decode("ascii")
-        return base64_string
+        return base64_bytes.decode("ascii")
 
     def set_cache_token_key(self) -> str:
         if self.connect_client_id and self.secret_key:
             hash_code = hashlib.sha256(
                 "".join([self.connect_client_id, self.secret_key]).encode()
             ).hexdigest()
-            self.cache_token_key = "paypal_token_hash_{}".format(hash_code)
+            self.cache_token_key = f"paypal_token_hash_{hash_code}"
             # Fernet key must be 32 urlsafe b64encode
             self.fernet = Fernet(base64.urlsafe_b64encode(hash_code[:32].encode()))
 
@@ -229,7 +227,7 @@ class PaypalRequestHandler:
         """
         https://developer.paypal.com/docs/api/orders/v2/#orders_create
         """
-        response = self.request(
+        return self.request(
             url=self.partner_referrals_url,
             method="POST",
             headers={
@@ -238,24 +236,22 @@ class PaypalRequestHandler:
             },
             data=json.dumps(data),
         )
-        return response
 
     def get_order(self, order_id: str) -> dict:
         """
         https://developer.paypal.com/docs/api/orders/v2/#orders_get
         """
-        response = self.request(
+        return self.request(
             url=self.order_url.format(order_id=order_id),
             method="GET",
             headers={"Authorization": f"Bearer {self.get_access_token()}"},
         )
-        return response
 
     def create_order(self, order_data: dict) -> dict:
         """
         https://developer.paypal.com/docs/api/orders/v2/#orders_create
         """
-        response = self.request(
+        return self.request(
             url=self.create_order_url,
             method="POST",
             headers={
@@ -265,14 +261,12 @@ class PaypalRequestHandler:
             },
             data=json.dumps(order_data),
         )
-        return response
 
     def capture_order(self, order_id: str) -> dict:
         """
         https://developer.paypal.com/docs/api/orders/v2/#orders_capture
         """
-
-        response = self.request(
+        return self.request(
             url=self.capture_order_url.format(order_id=order_id),
             method="POST",
             headers={
@@ -281,14 +275,12 @@ class PaypalRequestHandler:
                 "PayPal-Request-Id": self.paypal_request_id,
             },
         )
-        return response
 
     def update_order(self, order_id: str, update_data: List[dict]) -> dict:
         """
         https://developer.paypal.com/docs/api/orders/v2/#orders_patch
         """
-
-        response = self.request(
+        return self.request(
             url=self.order_url.format(order_id=order_id),
             method="PATCH",
             headers={
@@ -297,14 +289,12 @@ class PaypalRequestHandler:
             },
             data=json.dumps(update_data),
         )
-        return response
 
     def get_refund_detail(self, refund_id: str, merchant_id: str) -> dict:
         """
         https://developer.paypal.com/docs/api/payments/v2/#refunds_get
         """
-
-        response = self.request(
+        return self.request(
             url=self.refund_detail_url.format(refund_id=refund_id),
             method="GET",
             headers={
@@ -313,7 +303,6 @@ class PaypalRequestHandler:
                 "PayPal-Auth-Assertion": self.get_paypal_auth_assertion(merchant_id),
             },
         )
-        return response
 
     def refund_payment(
         self,
@@ -324,7 +313,7 @@ class PaypalRequestHandler:
         """
         https://developer.paypal.com/docs/api/payments/v2/#captures_refund
         """
-        response = self.request(
+        return self.request(
             url=self.refund_payment_url.format(capture_id=capture_id),
             method="POST",
             headers={
@@ -335,13 +324,12 @@ class PaypalRequestHandler:
             },
             data=json.dumps(refund_data),
         )
-        return response
 
     def verify_webhook_signature(self, data: dict) -> dict:
         """
         https://developer.paypal.com/docs/api/webhooks/v1/#verify-webhook-signature_post
         """
-        response = self.request(
+        return self.request(
             url=self.verify_webhook_url,
             method="POST",
             data=json.dumps(data),
@@ -350,4 +338,3 @@ class PaypalRequestHandler:
                 "Authorization": f"Bearer {self.get_access_token()}",
             },
         )
-        return response

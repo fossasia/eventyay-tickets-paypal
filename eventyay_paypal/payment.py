@@ -1,3 +1,4 @@
+import contextlib
 import json
 import logging
 import urllib.parse
@@ -196,7 +197,9 @@ class Paypal(BasePaymentProvider):
                 ],
                 "products": ["EXPRESS_CHECKOUT"],
                 "partner_config_override": {
-                    "return_url": build_global_uri("plugins:eventyay_paypal:oauth.return")
+                    "return_url": build_global_uri(
+                        "plugins:eventyay_paypal:oauth.return"
+                    )
                 },
                 "legal_consents": [{"type": "SHARE_DATA_CONSENT", "granted": True}],
                 "tracking_id": request.session["payment_paypal_tracking_id"],
@@ -325,7 +328,7 @@ class Paypal(BasePaymentProvider):
                         "items": [
                             {
                                 "name": (
-                                    "{} ".format(self.settings.prefix)
+                                    f"{self.settings.prefix} "
                                     if self.settings.prefix
                                     else ""
                                 )
@@ -359,15 +362,19 @@ class Paypal(BasePaymentProvider):
                             "payment_method_preference": "UNRESTRICTED",
                             "landing_page": "LOGIN",
                             "return_url": build_absolute_uri(
-                                request.event, "plugins:eventyay_paypal:return", kwargs=kwargs
+                                request.event,
+                                "plugins:eventyay_paypal:return",
+                                kwargs=kwargs,
                             ),
                             "cancel_url": build_absolute_uri(
-                                request.event, "plugins:eventyay_paypal:abort", kwargs=kwargs
+                                request.event,
+                                "plugins:eventyay_paypal:abort",
+                                kwargs=kwargs,
                             ),
                         }
                     }
                 },
-            },
+            }
         )
 
         if order_response.get("errors"):
@@ -427,13 +434,16 @@ class Paypal(BasePaymentProvider):
             messages.error(request, _("We had trouble communicating with PayPal"))
             logger.error("Invalid order state: %s", str(order))
             return
+
         request.session["payment_paypal_order_id"] = order["id"]
         for link in order["links"]:
             if link["rel"] == "payer-action":
                 if request.session.get("iframe_session", False):
                     signer = signing.Signer(salt="safe-redirect")
                     return (
-                        build_absolute_uri(request.event, "plugins:eventyay_paypal:redirect")
+                        build_absolute_uri(
+                            request.event, "plugins:eventyay_paypal:redirect"
+                        )
                         + "?url="
                         + urllib.parse.quote(signer.sign(link["href"]))
                     )
@@ -485,13 +495,10 @@ class Paypal(BasePaymentProvider):
             )
 
         order_detail = order_response.get("response")
-        try:
+        with contextlib.suppress(ReferencedPayPalObject.MultipleObjectsReturned):
             ReferencedPayPalObject.objects.get_or_create(
                 order=payment.order, payment=payment, reference=order_id
             )
-        except ReferencedPayPalObject.MultipleObjectsReturned:
-            pass
-
         if (
             str(order_detail["purchase_units"][0]["amount"]["value"])
             != str(payment.amount)
@@ -520,7 +527,7 @@ class Paypal(BasePaymentProvider):
 
         if order_detail["status"] == "APPROVED":
             description = (
-                "{} ".format(self.settings.prefix) if self.settings.prefix else ""
+                f"{self.settings.prefix} " if self.settings.prefix else ""
             ) + __("Order {order} for {event}").format(
                 event=request.event.name, order=payment.order.code
             )
@@ -577,15 +584,14 @@ class Paypal(BasePaymentProvider):
             captured_order = capture_response.get("response")
             for purchase_unit in captured_order["purchase_units"]:
                 for capture in purchase_unit["payments"]["captures"]:
-                    try:
+                    with contextlib.suppress(
+                        ReferencedPayPalObject.MultipleObjectsReturned
+                    ):
                         ReferencedPayPalObject.objects.get_or_create(
                             order=payment.order,
                             payment=payment,
                             reference=capture["id"],
                         )
-                    except ReferencedPayPalObject.MultipleObjectsReturned:
-                        pass
-
                     if capture["status"] != "COMPLETED":
                         messages.warning(
                             request,
@@ -620,7 +626,7 @@ class Paypal(BasePaymentProvider):
             payment.save(update_fields=["info"])
             payment.confirm()
         except Quota.QuotaExceededException as e:
-            raise PaymentException(str(e))
+            raise PaymentException(str(e)) from e
 
         except SendMailException:
             messages.warning(
@@ -630,7 +636,7 @@ class Paypal(BasePaymentProvider):
 
     def payment_pending_render(self, request, payment) -> str:
         retry = True
-        try:
+        with contextlib.suppress(KeyError):
             if (
                 payment.info
                 and payment.info_data["purchase_units"][0]["payments"]["captures"][0][
@@ -639,8 +645,6 @@ class Paypal(BasePaymentProvider):
                 == "pending"
             ):
                 retry = False
-        except KeyError:
-            pass
         template = get_template("plugins/paypal/pending.html")
         ctx = {
             "request": request,
@@ -700,12 +704,16 @@ class Paypal(BasePaymentProvider):
     def execute_refund(self, refund: OrderRefund):
         payment_info_data = refund.payment.info_data
 
-        capture_id = None
-        for capture in payment_info_data["purchase_units"][0]["payments"]["captures"]:
-            if capture["status"] in ["COMPLETED", "PARTIALLY_REFUNDED"]:
-                capture_id = capture["id"]
-                break
-
+        capture_id = next(
+            (
+                capture["id"]
+                for capture in payment_info_data["purchase_units"][0]["payments"][
+                    "captures"
+                ]
+                if capture["status"] in ["COMPLETED", "PARTIALLY_REFUNDED"]
+            ),
+            None,
+        )
         refund_payment = self.paypal_request_handler.refund_payment(
             capture_id=capture_id,
             refund_data={
@@ -760,7 +768,6 @@ class Paypal(BasePaymentProvider):
             )
 
         refund_detail_response = refund_detail.get("response")
-
         refund.info = json.dumps(refund_detail_response)
         refund.save(update_fields=["info"])
 
@@ -806,7 +813,7 @@ class Paypal(BasePaymentProvider):
                         "items": [
                             {
                                 "name": (
-                                    "{} ".format(self.settings.prefix)
+                                    f"{self.settings.prefix} "
                                     if self.settings.prefix
                                     else ""
                                 )
@@ -848,7 +855,7 @@ class Paypal(BasePaymentProvider):
                         }
                     }
                 },
-            },
+            }
         )
 
         if order_response.get("errors"):
