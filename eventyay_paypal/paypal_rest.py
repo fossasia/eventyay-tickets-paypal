@@ -94,19 +94,15 @@ class PaypalRequestHandler:
             reason = response.reason
             response.raise_for_status()
 
-            if "application/json" not in response.headers.get("Content-Type"):
-                raise requests.exceptions.JSONDecodeError(
-                    msg=f"Reponse of request to {url} is not json parsable."
-                )
+            if "application/json" not in response.headers.get("Content-Type", ""):
+                response_data["errors"] ={
+                    "type": "UnparseableResponse",
+                    "reason": reason,
+                    "exception": "Response is not json parseable",
+                }
+                return response_data
 
             response_data["response"] = response.json()
-            return response_data
-        except requests.exceptions.JSONDecodeError as e:
-            response_data["errors"] = {
-                "type": "JSONDecodeError",
-                "reason": reason,
-                "exception": e,
-            }
             return response_data
         except requests.exceptions.ReadTimeout as e:
             response_data["errors"] = {
