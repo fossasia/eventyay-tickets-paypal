@@ -95,7 +95,7 @@ class PaypalRequestHandler:
             response.raise_for_status()
 
             if "application/json" not in response.headers.get("Content-Type", ""):
-                response_data["errors"] ={
+                response_data["errors"] = {
                     "type": "UnparseableResponse",
                     "reason": reason,
                     "exception": "Response is not json parseable",
