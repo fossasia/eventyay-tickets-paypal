@@ -27,6 +27,7 @@ from pretix.multidomain.urlreverse import build_absolute_uri
 
 from .models import ReferencedPayPalObject
 from .paypal_rest import PaypalRequestHandler
+from .utils import safe_get
 
 logger = logging.getLogger("pretix.plugins.eventyay_paypal")
 
@@ -206,8 +207,7 @@ class Paypal(BasePaymentProvider):
             },
         )
 
-        if response_data.get("errors"):
-            errors = response_data.get("errors")
+        if errors := response_data.get("errors"):
             messages.error(
                 request,
                 _("An error occurred during connecting with PayPal: {}").format(
@@ -377,8 +377,7 @@ class Paypal(BasePaymentProvider):
             }
         )
 
-        if order_response.get("errors"):
-            errors = order_response.get("errors")
+        if errors := order_response.get("errors"):
             messages.error(
                 request,
                 _("An error occurred during connecting with PayPal: {}").format(
@@ -430,14 +429,15 @@ class Paypal(BasePaymentProvider):
         return False
 
     def _create_order(self, request, order):
-        if order["status"] not in ("CREATED", "PAYER_ACTION_REQUIRED"):
+        if order.get("status") not in ("CREATED", "PAYER_ACTION_REQUIRED"):
             messages.error(request, _("We had trouble communicating with PayPal"))
             logger.error("Invalid order state: %s", str(order))
             return
 
         request.session["payment_paypal_order_id"] = order["id"]
-        for link in order["links"]:
-            if link["rel"] == "payer-action":
+        for link in order.get("links", []):
+            if link.get("rel") == "payer-action":
+                href = link.get("href")
                 if request.session.get("iframe_session", False):
                     signer = signing.Signer(salt="safe-redirect")
                     return (
@@ -445,10 +445,10 @@ class Paypal(BasePaymentProvider):
                             request.event, "plugins:eventyay_paypal:redirect"
                         )
                         + "?url="
-                        + urllib.parse.quote(signer.sign(link["href"]))
+                        + urllib.parse.quote(signer.sign(href))
                     )
                 else:
-                    return str(link["href"])
+                    return str(href)
 
     def checkout_confirm_render(self, request) -> str:
         """
@@ -484,9 +484,9 @@ class Paypal(BasePaymentProvider):
             )
 
         order_response = self.paypal_request_handler.get_order(order_id=order_id)
-        if order_response.get("errors"):
+        if errors := order_response.get("errors"):
             handle_paypal_error(
-                order_response.get("errors"),
+                errors,
                 order_id,
                 payment,
                 "Unable to retrieve order %s from Paypal: %s",
@@ -499,9 +499,15 @@ class Paypal(BasePaymentProvider):
             )
 
         if (
-            str(order_detail["purchase_units"][0]["amount"]["value"])
+            str(
+                safe_get(
+                    order_detail.get("purchase_units", [{}])[0], ["amount", "value"]
+                )
+            )
             != str(payment.amount)
-            or order_detail["purchase_units"][0]["amount"]["currency_code"]
+            or safe_get(
+                order_detail.get("purchase_units", [{}])[0], ["amount", "currency_code"]
+            )
             != self.event.currency
         ):
             logger.error(
@@ -524,9 +530,11 @@ class Paypal(BasePaymentProvider):
             )
 
         if order_detail["status"] == "APPROVED":
-            description = (f"{self.settings.prefix} " if self.settings.prefix else "") + __(
-                "Order {order} for {event}"
-            ).format(event=request.event.name, order=payment.order.code)
+            description = (
+                f"{self.settings.prefix} " if self.settings.prefix else ""
+            ) + __("Order {order} for {event}").format(
+                event=request.event.name, order=payment.order.code
+            )
 
             update_response = self.paypal_request_handler.update_order(
                 order_id=order_id,
@@ -538,26 +546,28 @@ class Paypal(BasePaymentProvider):
                     }
                 ],
             )
-            if update_response.get("errors"):
+            if errors := update_response.get("errors"):
                 handle_paypal_error(
-                    update_response.get("errors"),
+                    errors,
                     order_id,
                     payment,
                     "Unable to patch order %s in Paypal: %s",
                 )
 
-            capture_response = self.paypal_request_handler.capture_order(order_id=order_id)
-            if capture_response.get("errors"):
+            capture_response = self.paypal_request_handler.capture_order(
+                order_id=order_id
+            )
+            if errors := capture_response.get("errors"):
                 handle_paypal_error(
-                    capture_response.get("errors"),
+                    errors,
                     order_id,
                     payment,
                     "Unable to capture order %s in Paypal: %s",
                 )
 
             captured_order = capture_response.get("response")
-            for purchase_unit in captured_order["purchase_units"]:
-                for capture in purchase_unit["payments"]["captures"]:
+            for purchase_unit in captured_order.get("purchase_units", []):
+                for capture in safe_get(purchase_unit, ["payments", "captures"], []):
                     with contextlib.suppress(
                         ReferencedPayPalObject.MultipleObjectsReturned
                     ):
@@ -611,9 +621,10 @@ class Paypal(BasePaymentProvider):
         with contextlib.suppress(KeyError):
             if (
                 payment.info
-                and payment.info_data["purchase_units"][0]["payments"]["captures"][0][
-                    "status"
-                ]
+                and safe_get(
+                    payment.info_data.get("purchase_units", [{}])[0],
+                    ["payments", "captures", "status"],
+                )
                 == "pending"
             ):
                 retry = False
@@ -630,20 +641,20 @@ class Paypal(BasePaymentProvider):
     def matching_id(self, payment: OrderPayment):
         order_id = None
         for trans in payment.info_data.get("purchase_units", []):
-            for res in trans.get("payments", {}).get("captures", []):
-                order_id = res["id"]
+            for res in safe_get(trans, ["payments", "captures"], []):
+                order_id = res.get("id")
                 break
         return order_id or payment.info_data.get("id", None)
 
     def api_payment_details(self, payment: OrderPayment):
         order_id = self.matching_id(payment)
         return {
-            "payer_email": payment.info_data.get("payer", {})
-            .get("payer_info", {})
-            .get("email"),
-            "payer_id": payment.info_data.get("payer", {})
-            .get("payer_info", {})
-            .get("payer_id"),
+            "payer_email": safe_get(
+                payment.info_data, ["payer", "payer_info", "email"]
+            ),
+            "payer_id": safe_get(
+                payment.info_data, ["payer", "payer_info", "payer_id"]
+            ),
             "cart_id": payment.info_data.get("cart", None),
             "payment_id": payment.info_data.get("id", None),
             "sale_id": order_id,
@@ -663,7 +674,7 @@ class Paypal(BasePaymentProvider):
         return template.render(ctx)
 
     def payment_control_render_short(self, payment: OrderPayment) -> str:
-        return payment.info_data.get("payer", {}).get("payer_info", {}).get("email", "")
+        return safe_get(payment.info_data, ["payer", "payer_info", "email"], "")
 
     def payment_partial_refund_supported(self, payment: OrderPayment):
         # Paypal refunds are possible for 180 days after purchase:
@@ -678,11 +689,13 @@ class Paypal(BasePaymentProvider):
 
         capture_id = next(
             (
-                capture["id"]
-                for capture in payment_info_data["purchase_units"][0]["payments"][
-                    "captures"
-                ]
-                if capture["status"] in ["COMPLETED", "PARTIALLY_REFUNDED"]
+                capture.get("id")
+                for capture in safe_get(
+                    payment_info_data.get("purchase_units", [{}])[0],
+                    ["payments", "captures"],
+                    [],
+                )
+                if capture.get("status") in ["COMPLETED", "PARTIALLY_REFUNDED"]
             ),
             None,
         )
@@ -696,8 +709,7 @@ class Paypal(BasePaymentProvider):
             },
             merchant_id=self.event.settings.payment_paypal_merchant_id,
         )
-        if refund_payment.get("errors"):
-            errors = refund_payment.get("errors")
+        if errors := refund_payment.get("errors"):
             logger.error("execute_refund: %s", errors["reason"])
             refund.order.log_action(
                 "pretix.event.order.refund.failed",
@@ -723,8 +735,7 @@ class Paypal(BasePaymentProvider):
             merchant_id=self.event.settings.payment_paypal_merchant_id,
         )
 
-        if refund_detail.get("errors"):
-            errors = refund_payment.get("errors")
+        if errors := refund_detail.get("errors"):
             refund.order.log_action(
                 "pretix.event.order.refund.failed",
                 {
@@ -878,22 +889,20 @@ class Paypal(BasePaymentProvider):
 
     def render_invoice_text(self, order: Order, payment: OrderPayment) -> str:
         if order.status == Order.STATUS_PAID:
-            if payment.info_data.get('id', None):
-                try:
-                    return '{}\r\n{}: {}\r\n{}: {}'.format(
-                        _('The payment for this invoice has already been received.'),
-                        _('PayPal payment ID'),
-                        payment.info_data['id'],
-                        _('PayPal sale ID'),
-                        payment.info_data['transactions'][0]['related_resources'][0]['sale']['id']
-                    )
-                except (KeyError, IndexError):
-                    return '{}\r\n{}: {}'.format(
-                        _('The payment for this invoice has already been received.'),
-                        _('PayPal payment ID'),
-                        payment.info_data['id']
-                    )
-            else:
+            payment_id = payment.info_data.get('id')
+            if not payment_id:
                 return super().render_invoice_text(order, payment)
 
+            try:
+                paypal_sale_id = payment.info_data['transactions'][0]['related_resources'][0]['sale']['id']
+                return (
+                    f"{_('The payment for this invoice has already been received.')}\r\n"
+                    f"{_('PayPal payment ID')}: {payment_id}\r\n"
+                    f"{_('PayPal sale ID')}: {paypal_sale_id}"
+                )
+            except (KeyError, IndexError):
+                return (
+                    f"{_('The payment for this invoice has already been received.')}\r\n"
+                    f"{_('PayPal payment ID')}: {payment_id}"
+                )
         return self.settings.get('_invoice_text', as_type=LazyI18nString, default='')

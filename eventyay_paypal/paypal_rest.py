@@ -5,6 +5,7 @@ import logging
 import time
 import urllib.parse
 import uuid
+from http import HTTPMethod
 from typing import List, Optional
 
 import jwt
@@ -65,7 +66,7 @@ class PaypalRequestHandler:
     def request(
         self,
         url: str,
-        method: str,
+        method: HTTPMethod,
         data=None,
         params=None,
         headers=None,
@@ -75,15 +76,15 @@ class PaypalRequestHandler:
         reason = ""
         response_data = {}
         try:
-            if method == "GET":
+            if method == HTTPMethod.GET:
                 response = requests.get(
                     url, data=data, params=params, headers=headers, timeout=timeout
                 )
-            elif method == "POST":
+            elif method == HTTPMethod.POST:
                 response = requests.post(
                     url, data=data, params=params, headers=headers, timeout=timeout
                 )
-            elif method == "PATCH":
+            elif method == HTTPMethod.PATCH:
                 # Patch request return empty body
                 requests.patch(
                     url, data=data, params=params, headers=headers, timeout=timeout
@@ -179,7 +180,7 @@ class PaypalRequestHandler:
         def request_new_access_token() -> dict:
             access_token_response = self.request(
                 url=self.oauth_url,
-                method="POST",
+                method=HTTPMethod.POST,
                 headers={
                     "Authorization": f"Basic {self.encode_b64(self.connect_client_id, self.secret_key)}",
                     "Content-Type": "application/x-www-form-urlencoded",
@@ -187,8 +188,7 @@ class PaypalRequestHandler:
                 data={"grant_type": "client_credentials"},
             )
 
-            if access_token_response.get("errors"):
-                errors = access_token_response.get("errors")
+            if errors := access_token_response.get("errors"):
                 logger.error(
                     "Error getting access token from Paypal: %s", errors["reason"]
                 )
@@ -225,7 +225,7 @@ class PaypalRequestHandler:
         """
         return self.request(
             url=self.partner_referrals_url,
-            method="POST",
+            method=HTTPMethod.POST,
             headers={
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {self.get_access_token()}",
@@ -239,7 +239,7 @@ class PaypalRequestHandler:
         """
         return self.request(
             url=self.order_url.format(order_id=order_id),
-            method="GET",
+            method=HTTPMethod.GET,
             headers={"Authorization": f"Bearer {self.get_access_token()}"},
         )
 
@@ -264,7 +264,7 @@ class PaypalRequestHandler:
         """
         return self.request(
             url=self.capture_order_url.format(order_id=order_id),
-            method="POST",
+            method=HTTPMethod.POST,
             headers={
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {self.get_access_token()}",
@@ -278,7 +278,7 @@ class PaypalRequestHandler:
         """
         return self.request(
             url=self.order_url.format(order_id=order_id),
-            method="PATCH",
+            method=HTTPMethod.PATCH,
             headers={
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {self.get_access_token()}",
@@ -292,7 +292,7 @@ class PaypalRequestHandler:
         """
         return self.request(
             url=self.refund_detail_url.format(refund_id=refund_id),
-            method="GET",
+            method=HTTPMethod.GET,
             headers={
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {self.get_access_token()}",
@@ -311,7 +311,7 @@ class PaypalRequestHandler:
         """
         return self.request(
             url=self.refund_payment_url.format(capture_id=capture_id),
-            method="POST",
+            method=HTTPMethod.POST,
             headers={
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {self.get_access_token()}",
@@ -327,7 +327,7 @@ class PaypalRequestHandler:
         """
         return self.request(
             url=self.verify_webhook_url,
-            method="POST",
+            method=HTTPMethod.POST,
             data=json.dumps(data),
             headers={
                 "Content-Type": "application/json",

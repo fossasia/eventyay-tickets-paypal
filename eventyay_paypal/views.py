@@ -3,6 +3,7 @@ import json
 import logging
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+from http import HTTPStatus
 
 from django.contrib import messages
 from django.core import signing
@@ -22,6 +23,7 @@ from pretix.multidomain.urlreverse import eventreverse
 
 from .models import ReferencedPayPalObject
 from .payment import Paypal
+from .utils import safe_get
 
 logger = logging.getLogger("pretix.plugins.eventyay_paypal")
 
@@ -71,7 +73,7 @@ def oauth_return(request, *args, **kwargs):
         )
         return redirect(reverse("control:index"))
 
-    event = get_object_or_404(Event, pk=request.session["payment_paypal_oauth_event"])
+    event = get_object_or_404(Event, pk=request.session.get("payment_paypal_oauth_event"))
     event.settings.payment_paypal_connect_user_id = request.GET.get("merchantId")
     event.settings.payment_paypal_merchant_id = request.GET.get("merchantIdInPayPal")
 
@@ -222,7 +224,8 @@ def check_webhook_signature(request, event, event_json, prov) -> bool:
 
     if (
         verify_response.get("errors")
-        or verify_response.get("response", {}).get("verification_status") == "FAILURE"
+        or safe_get(verify_response, ["response", "verification_status"], "")
+        == "FAILURE"
     ):
         errors = verify_response.get("errors")
         logger.error("Unable to verify signature of webhook: %s", errors["reason"])
@@ -253,10 +256,10 @@ def parse_webhook_event(request, event_json):
 
     # For filtering reference, there are a lot of ids appear within json__event
     if ref_order_id := (
-        event_json["resource"]
-        .get("supplementary_data", {})
-        .get("related_ids", {})
-        .get("order_id")
+        safe_get(
+            event_json,
+            ["resource", "supplementary_data", "related_ids", "order_id"]
+        )
     ):
         references.append(ref_order_id)
 
@@ -294,8 +297,7 @@ def extract_order_and_payment(payment_id, event, event_json, prov, rpo=None):
     payment = None
 
     order_response = prov.paypal_request_handler.get_order(order_id=payment_id)
-    if order_response.get("errors"):
-        errors = order_response.get("errors")
+    if errors := order_response.get("errors"):
         logger.error("Paypal error on webhook: %s", errors["reason"])
         logger.exception("PayPal error on webhook. Event data: %s", str(event_json))
         return order_detail, payment
@@ -306,17 +308,24 @@ def extract_order_and_payment(payment_id, event, event_json, prov, rpo=None):
         payment = rpo.payment
     else:
         payments = OrderPayment.objects.filter(
-            order__event=event, provider="paypal", info__icontains=order_detail["id"]
+            order__event=event, provider="paypal", info__icontains=order_detail.get("id")
         )
         payment = None
         for p in payments:
-            for capture in p.info_data["purchase_units"][0]["payments"]["captures"]:
-                if (
-                    capture["status"] in ["COMPLETED", "PARTIALLY_REFUNDED"]
-                    and capture["id"] == order_detail["id"]
+            if (
+                "info_data" in p
+                and "purchase_units" in p.info_data
+                and p.info_data["purchase_units"]
+            ):
+                for capture in safe_get(
+                    p.info_data["purchase_units"][0], ["payments", "captures"], []
                 ):
-                    payment = p
-                    break
+                    if capture.get("status") in [
+                        "COMPLETED",
+                        "PARTIALLY_REFUNDED",
+                    ] and capture.get("id") == order_detail.get("id"):
+                        payment = p
+                        break
 
     return order_detail, payment
 
@@ -332,60 +341,68 @@ def webhook(request, *args, **kwargs):
     event_body = request.body.decode("utf-8").strip()
     event_json = json.loads(event_body)
 
-    if event_json["resource_type"] not in ("checkout-order", "refund", "capture"):
-        return HttpResponse("Wrong resource type", status=200)
+    if event_json.get("resource_type") not in ("checkout-order", "refund", "capture"):
+        return HttpResponse("Wrong resource type", status=HTTPStatus.BAD_REQUEST)
 
     event, payment_id, rpo = parse_webhook_event(request, event_json)
     if event is None:
-        return HttpResponse("Unable to get event from webhook", status=200)
+        return HttpResponse("Unable to get event from webhook", status=HTTPStatus.BAD_REQUEST)
 
     prov = Paypal(event)
 
     # Verify signature
     if not check_webhook_signature(request, event, event_json, prov):
-        return HttpResponse("Unable to verify signature of webhook", status=200)
+        return HttpResponse("Unable to verify signature of webhook", status=HTTPStatus.BAD_REQUEST)
 
     order_detail, payment = extract_order_and_payment(
         payment_id, event, event_json, prov, rpo
     )
     if order_detail is None or payment is None:
-        return HttpResponse("Order or payment not found", status=200)
+        return HttpResponse("Order or payment not found", status=HTTPStatus.BAD_REQUEST)
 
     payment.order.log_action("pretix.plugins.eventyay_paypal.event", data=event_json)
 
     def handle_refund():
+        refund_id_in_event = safe_get(event_json, ["resource", "id"])
         refund_response = prov.paypal_request_handler.get_refund_detail(
-            refund_id=event_json["resource"]["id"],
+            refund_id=refund_id_in_event,
             merchant_id=event.settings.payment_paypal_merchant_id,
         )
-        if refund_response.get("errors"):
-            errors = refund_response.get("errors")
+        if errors := refund_response.get("errors"):
             logger.error("Paypal error on webhook: %s", errors["reason"])
             logger.exception("PayPal error on webhook. Event data: %s", str(event_json))
             return HttpResponse(
-                f'Refund {event_json["resource"]["id"]} not found', status=200
+                f'Refund {refund_id_in_event} not found', status=HTTPStatus.BAD_REQUEST
             )
 
         refund_detail = refund_response.get("response")
-        known_refunds = {
-            refund.info_data.get("id"): refund for refund in payment.refunds.all()
-        }
-        if refund_detail["id"] not in known_refunds:
-            payment.create_external_refund(
-                amount=abs(Decimal(refund_detail["amount"]["value"])),
-                info=json.dumps(refund_detail),
-            )
-        elif (
-            known_refunds.get(refund_detail["id"]).state
-            in (OrderRefund.REFUND_STATE_CREATED, OrderRefund.REFUND_STATE_TRANSIT)
-            and refund_detail["status"] == "COMPLETED"
-        ):
-            known_refunds.get(refund_detail["id"]).done()
+        if refund_id := refund_detail.get("id"):
+            known_refunds = {
+                refund.info_data.get("id"): refund for refund in payment.refunds.all()
+            }
+            if refund_id not in known_refunds:
+                payment.create_external_refund(
+                    amount=abs(
+                        Decimal(safe_get(refund_detail, ["amount", "value"], "0.00"))
+                    ),
+                    info=json.dumps(refund_detail),
+                )
+            elif know_refund := known_refunds.get(refund_id):
+                if (
+                    know_refund.state
+                    in (
+                        OrderRefund.REFUND_STATE_CREATED,
+                        OrderRefund.REFUND_STATE_TRANSIT,
+                    )
+                    and refund_detail.get("status", "") == "COMPLETED"
+                ):
+                    know_refund.done()
 
-        if (
-            "seller_payable_breakdown" in refund_detail
-            and "total_refunded_amount" in refund_detail["seller_payable_breakdown"]
-        ):
+            seller_payable_breakdown_value = safe_get(
+                refund_detail,
+                ["seller_payable_breakdown", "total_refunded_amount", "value"],
+                "0.00",
+            )
             known_sum = payment.refunds.filter(
                 state__in=(
                     OrderRefund.REFUND_STATE_DONE,
@@ -394,18 +411,14 @@ def webhook(request, *args, **kwargs):
                     OrderRefund.REFUND_SOURCE_EXTERNAL,
                 )
             ).aggregate(s=Sum("amount"))["s"] or Decimal("0.00")
-            total_refunded_amount = Decimal(
-                refund_detail["seller_payable_breakdown"]["total_refunded_amount"][
-                    "value"
-                ]
-            )
+            total_refunded_amount = Decimal(seller_payable_breakdown_value)
             if known_sum < total_refunded_amount:
                 payment.create_external_refund(amount=total_refunded_amount - known_sum)
 
     def handle_payment_state_confirmed():
-        if event_json["resource_type"] == "refund":
+        if event_json.get("resource_type") == "refund":
             handle_refund()
-        elif order_detail["status"] == "REFUNDED":
+        elif order_detail.get("status") == "REFUNDED":
             known_sum = payment.refunds.filter(
                 state__in=(
                     OrderRefund.REFUND_STATE_DONE,
@@ -418,7 +431,7 @@ def webhook(request, *args, **kwargs):
                 payment.create_external_refund(amount=payment.amount - known_sum)
 
     def handle_payment_state_pending():
-        if order_detail["status"] == "APPROVED":
+        if order_detail.get("status") == "APPROVED":
             try:
                 request.session["payment_paypal_order_id"] = payment.info_data.get("id")
                 payment.payment_provider.execute_payment(request, payment)
@@ -427,20 +440,20 @@ def webhook(request, *args, **kwargs):
                     "Error executing approved payment in webhook: payment not yet populated."
                 )
                 logger.exception("Unable to execute payment in webhook: %s", str(e))
-        elif order_detail["status"] == "COMPLETED":
+        elif order_detail.get("status") == "COMPLETED":
             captured = False
             captures_completed = True
-            for purchase_unit in order_detail["purchase_units"]:
-                for capture in purchase_unit["payments"]["captures"]:
+            for purchase_unit in order_detail.get("purchase_units", []):
+                for capture in safe_get(purchase_unit, ["payment", "captures"], []):
                     with contextlib.suppress(
                         ReferencedPayPalObject.MultipleObjectsReturned
                     ):
                         ReferencedPayPalObject.objects.get_or_create(
                             order=payment.order,
                             payment=payment,
-                            reference=capture["id"],
+                            reference=capture.get("id"),
                         )
-                    if capture["status"] in (
+                    if capture.get("status") in (
                         "COMPLETED",
                         "REFUNDED",
                         "PARTIALLY_REFUNDED",
@@ -466,7 +479,7 @@ def webhook(request, *args, **kwargs):
     ):
         handle_payment_state_pending()
 
-    return HttpResponse(status=200)
+    return HttpResponse(status=HTTPStatus.OK)
 
 
 @event_permission_required("can_change_event_settings")
