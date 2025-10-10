@@ -3,18 +3,13 @@ from django.utils.translation import gettext_lazy as _
 
 from . import __version__
 
-try:
-    from pretix.base.plugins import PluginConfig
-except ImportError:
-    raise RuntimeError("Python package 'paypal' is not installed.")
-
 
 class PaypalPluginApp(AppConfig):
     default = True
     name = "eventyay_paypal"
     verbose_name = _("PayPal")
 
-    class PretixPluginMeta:
+    class EventyayPluginMeta:
         name = _("PayPal")
         author = "eventyay"
         version = __version__

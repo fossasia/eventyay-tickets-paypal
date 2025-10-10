@@ -16,16 +16,16 @@ from django.views.decorators.clickjacking import xframe_options_exempt
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 from django_scopes import scopes_disabled
-from pretix.base.models import Event, Order, OrderPayment, OrderRefund, Quota
-from pretix.base.payment import PaymentException
-from pretix.control.permissions import event_permission_required
-from pretix.multidomain.urlreverse import eventreverse
+from eventyay.base.models import Event, Order, OrderPayment, OrderRefund, Quota
+from eventyay.base.payment import PaymentException
+from eventyay.control.permissions import event_permission_required
+from eventyay.multidomain.urlreverse import eventreverse
 
 from .models import ReferencedPayPalObject
 from .payment import Paypal
 from .utils import safe_get
 
-logger = logging.getLogger("pretix.plugins.eventyay_paypal")
+logger = logging.getLogger(__name__)
 
 
 @xframe_options_exempt
@@ -360,7 +360,7 @@ def webhook(request, *args, **kwargs):
     if order_detail is None or payment is None:
         return HttpResponse("Order or payment not found", status=HTTPStatus.BAD_REQUEST)
 
-    payment.order.log_action("pretix.plugins.eventyay_paypal.event", data=event_json)
+    payment.order.log_action("eventyay.plugins.eventyay_paypal.event", data=event_json)
 
     def handle_refund():
         refund_id_in_event = safe_get(event_json, ["resource", "id"])
