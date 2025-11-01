@@ -17,19 +17,19 @@ from django.utils.timezone import now
 from django.utils.translation import gettext as __
 from django.utils.translation import gettext_lazy as _
 from i18nfield.strings import LazyI18nString
-from pretix.base.decimal import round_decimal
-from pretix.base.models import Event, Order, OrderPayment, OrderRefund, Quota
-from pretix.base.payment import BasePaymentProvider, PaymentException
-from pretix.base.services.mail import SendMailException
-from pretix.base.settings import SettingsSandbox
-from pretix.helpers.urls import build_absolute_uri as build_global_uri
-from pretix.multidomain.urlreverse import build_absolute_uri
+from eventyay.base.decimal import round_decimal
+from eventyay.base.models import Event, Order, OrderPayment, OrderRefund, Quota
+from eventyay.base.payment import BasePaymentProvider, PaymentException
+from eventyay.base.services.mail import SendMailException
+from eventyay.base.settings import SettingsSandbox
+from eventyay.helpers.urls import build_absolute_uri as build_global_uri
+from eventyay.multidomain.urlreverse import build_absolute_uri
 
 from .models import ReferencedPayPalObject
 from .paypal_rest import PaypalRequestHandler
 from .utils import safe_get
 
-logger = logging.getLogger("pretix.plugins.eventyay_paypal")
+logger = logging.getLogger(__name__)
 
 SUPPORTED_CURRENCIES = [
     "AUD",
@@ -712,7 +712,7 @@ class Paypal(BasePaymentProvider):
         if errors := refund_payment.get("errors"):
             logger.error("execute_refund: %s", errors["reason"])
             refund.order.log_action(
-                "pretix.event.order.refund.failed",
+                "eventyay.event.order.refund.failed",
                 {
                     "local_id": refund.local_id,
                     "provider": refund.provider,
@@ -737,7 +737,7 @@ class Paypal(BasePaymentProvider):
 
         if errors := refund_detail.get("errors"):
             refund.order.log_action(
-                "pretix.event.order.refund.failed",
+                "eventyay.event.order.refund.failed",
                 {
                     "local_id": refund.local_id,
                     "provider": refund.provider,
@@ -761,7 +761,7 @@ class Paypal(BasePaymentProvider):
             refund.save(update_fields=["state"])
         else:
             refund.order.log_action(
-                "pretix.event.order.refund.failed",
+                "eventyay.event.order.refund.failed",
                 {
                     "local_id": refund.local_id,
                     "provider": refund.provider,
@@ -873,7 +873,7 @@ class Paypal(BasePaymentProvider):
 
         for le in (
             obj.order.all_logentries()
-            .filter(action_type="pretix.plugins.eventyay_paypal.event")
+            .filter(action_type="eventyay.plugins.eventyay_paypal.event")
             .exclude(data="")
         ):
             d = le.parsed_data
