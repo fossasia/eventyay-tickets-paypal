@@ -23,7 +23,7 @@ from eventyay.multidomain.urlreverse import eventreverse
 
 from .models import ReferencedPayPalObject
 from .payment import Paypal
-from .utils import paypal_payment_matches_capture, safe_get
+from .utils import safe_get
 
 logger = logging.getLogger(__name__)
 
@@ -95,6 +95,7 @@ def oauth_return(request, *args, **kwargs):
     required_params = [
         "merchantId",
         "merchantIdInPayPal",
+        "permissionsGranted",
     ]
     required_session_params = [
         "payment_paypal_oauth_event",
@@ -109,7 +110,7 @@ def oauth_return(request, *args, **kwargs):
         )
         return redirect(reverse("control:index"))
 
-    if request.GET.get("permissionsGranted") == "false":
+    if request.GET.get("permissionsGranted") != "true":
         messages.error(
             request,
             _("PayPal permissions were not granted. Please try connecting again and approve the requested access."),
