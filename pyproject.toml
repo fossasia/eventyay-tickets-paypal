@@ -48,6 +48,7 @@ namespaces = false
 [tool.ruff]
 line-length = 120
 target-version = "py311"
+extend-exclude = ["**/migrations"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP"]
