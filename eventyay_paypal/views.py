@@ -23,7 +23,7 @@ from eventyay.multidomain.urlreverse import eventreverse
 
 from .models import ReferencedPayPalObject
 from .payment import Paypal
-from .utils import safe_get
+from .utils import paypal_payment_matches_capture, safe_get
 
 logger = logging.getLogger(__name__)
 
@@ -317,6 +317,9 @@ def extract_order_and_payment(payment_id, event, event_json, prov, rpo=None):
         return order_detail, payment
 
     order_detail = order_response.get("response")
+    if not order_detail:
+        logger.error("Paypal webhook returned an empty order for %s", payment_id)
+        return None, None
 
     if rpo and rpo.payment:
         payment = rpo.payment
@@ -326,14 +329,9 @@ def extract_order_and_payment(payment_id, event, event_json, prov, rpo=None):
         )
         payment = None
         for p in payments:
-            if "info_data" in p and "purchase_units" in p.info_data and p.info_data["purchase_units"]:
-                for capture in safe_get(p.info_data["purchase_units"][0], ["payments", "captures"], []):
-                    if capture.get("status") in [
-                        "COMPLETED",
-                        "PARTIALLY_REFUNDED",
-                    ] and capture.get("id") == order_detail.get("id"):
-                        payment = p
-                        break
+            if paypal_payment_matches_capture(p.info_data, order_detail.get("id")):
+                payment = p
+                break
 
     return order_detail, payment
 
@@ -444,11 +442,14 @@ def webhook(request, *args, **kwargs):
             captures_completed = True
             for purchase_unit in order_detail.get("purchase_units", []):
                 for capture in safe_get(purchase_unit, ["payments", "captures"], []):
+                    capture_id = capture.get("id")
+                    if not capture_id:
+                        continue
                     with contextlib.suppress(ReferencedPayPalObject.MultipleObjectsReturned):
                         ReferencedPayPalObject.objects.get_or_create(
                             order=payment.order,
                             payment=payment,
-                            reference=capture.get("id"),
+                            reference=capture_id,
                         )
                     if capture.get("status") in (
                         "COMPLETED",

@@ -56,7 +56,7 @@ class PaypalRequestHandler:
             "Authorization": f"Bearer {token}",
         }
         if extra:
-            headers.update(extra)
+            headers.update({key: value for key, value in extra.items() if value})
         return headers
 
     def credentials_error(self) -> dict:

@@ -5,8 +5,10 @@ from eventyay_paypal.utils import (
     canonical_paypal_endpoint,
     is_paypal_sandbox,
     paypal_approval_href,
+    paypal_captures,
     paypal_error_reason,
     paypal_payee_block,
+    paypal_payment_matches_capture,
     resolve_paypal_api_base,
     safe_get,
     uses_paypal_connect,
@@ -77,6 +79,27 @@ def test_paypal_error_reason_falls_back_to_details_and_reason():
             raise ValueError("not json")
 
     assert paypal_error_reason(BrokenResponse(), fallback="") == "Bad Gateway"
+
+
+def test_paypal_payment_matches_capture_and_capture_helpers():
+    info = {
+        "id": "ORDER1",
+        "purchase_units": [
+            {
+                "payments": {
+                    "captures": [
+                        {"id": "CAP1", "status": "COMPLETED"},
+                        {"status": "COMPLETED"},
+                    ]
+                }
+            }
+        ],
+    }
+    assert paypal_payment_matches_capture(info, "CAP1")
+    assert not paypal_payment_matches_capture(info, "CAP2")
+    assert not paypal_payment_matches_capture(info, None)
+    assert not paypal_payment_matches_capture({}, "CAP1")
+    assert [capture["id"] for capture in paypal_captures(info) if capture.get("id")] == ["CAP1"]
 
 
 def test_paypal_payee_block_omits_empty_merchant():

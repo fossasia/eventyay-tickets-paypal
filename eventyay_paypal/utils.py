@@ -55,11 +55,35 @@ def uses_paypal_connect(settings) -> bool:
     return bool(settings.connect_client_id and settings.connect_secret_key)
 
 
+COMPLETED_CAPTURE_STATUSES = frozenset({"COMPLETED", "PARTIALLY_REFUNDED"})
+
+
 def paypal_payee_block(merchant_id: str | None) -> dict | None:
     """Omit payee entirely unless Connect provided a merchant id (empty payee breaks checkout)."""
     if not merchant_id:
         return None
     return {"merchant_id": merchant_id}
+
+
+def paypal_captures(info_data: dict | None):
+    """Yield capture dicts from a PayPal order or payment info payload."""
+    if not info_data:
+        return
+    for unit in info_data.get("purchase_units") or []:
+        if not isinstance(unit, dict):
+            continue
+        for capture in safe_get(unit, ["payments", "captures"], []) or []:
+            if isinstance(capture, dict):
+                yield capture
+
+
+def paypal_payment_matches_capture(info_data: dict | None, capture_id: str | None) -> bool:
+    if not capture_id:
+        return False
+    return any(
+        capture.get("id") == capture_id and capture.get("status") in COMPLETED_CAPTURE_STATUSES
+        for capture in paypal_captures(info_data)
+    )
 
 
 def paypal_approval_href(order: dict | None) -> str | None:

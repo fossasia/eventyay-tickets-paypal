@@ -27,9 +27,11 @@ from i18nfield.strings import LazyI18nString
 from .models import ReferencedPayPalObject
 from .paypal_rest import PaypalRequestHandler
 from .utils import (
+    COMPLETED_CAPTURE_STATUSES,
     canonical_paypal_endpoint,
     is_paypal_sandbox,
     paypal_approval_href,
+    paypal_captures,
     paypal_payee_block,
     safe_get,
     uses_paypal_connect,
@@ -476,13 +478,14 @@ class Paypal(BasePaymentProvider):
 
     def execute_payment(self, request: HttpRequest, payment: OrderPayment):
         def handle_paypal_error(errors, order_id, payment, message):
+            exception = errors.get("exception")
             logger.error(message, order_id, errors.get("reason", errors))
             payment.fail(
                 info={
                     "error": {
                         "name": errors.get("type"),
                         "message": errors.get("reason"),
-                        "exception": errors.get("exception"),
+                        "exception": None if exception is None else f"{exception}",
                         "order_id": order_id,
                     }
                 }
@@ -648,12 +651,10 @@ class Paypal(BasePaymentProvider):
         return template.render(ctx)
 
     def matching_id(self, payment: OrderPayment):
-        order_id = None
-        for trans in payment.info_data.get("purchase_units", []):
-            for res in safe_get(trans, ["payments", "captures"], []):
-                order_id = res.get("id")
-                break
-        return order_id or payment.info_data.get("id", None)
+        for capture in paypal_captures(payment.info_data):
+            if capture.get("id"):
+                return capture.get("id")
+        return payment.info_data.get("id", None)
 
     def api_payment_details(self, payment: OrderPayment):
         order_id = self.matching_id(payment)
@@ -697,12 +698,8 @@ class Paypal(BasePaymentProvider):
         capture_id = next(
             (
                 capture.get("id")
-                for capture in safe_get(
-                    payment_info_data.get("purchase_units", [{}])[0],
-                    ["payments", "captures"],
-                    [],
-                )
-                if capture.get("status") in ["COMPLETED", "PARTIALLY_REFUNDED"]
+                for capture in paypal_captures(payment_info_data)
+                if capture.get("status") in COMPLETED_CAPTURE_STATUSES and capture.get("id")
             ),
             None,
         )
@@ -730,11 +727,13 @@ class Paypal(BasePaymentProvider):
             )
             raise PaymentException(_("An error occurred while communicating with PayPal, please try again."))
 
-        refund_payment_response = refund_payment.get("response")
+        refund_payment_response = refund_payment.get("response") or {}
+        refund_id = refund_payment_response.get("id")
+        if not refund_id:
+            raise PaymentException(_("An error occurred while communicating with PayPal, please try again."))
         refund.info = json.dumps(refund_payment_response)
         refund.save(update_fields=["info"])
 
-        refund_id = refund_payment_response["id"]
         refund_detail = self.paypal_request_handler.get_refund_detail(
             refund_id=refund_id,
             merchant_id=self.event.settings.payment_paypal_merchant_id,
@@ -751,29 +750,27 @@ class Paypal(BasePaymentProvider):
             )
             raise PaymentException(_("An error occurred while communicating with PayPal, please try again."))
 
-        refund_detail_response = refund_detail.get("response")
+        refund_detail_response = refund_detail.get("response") or {}
         refund.info = json.dumps(refund_detail_response)
         refund.save(update_fields=["info"])
 
-        if refund_detail_response["status"] == "COMPLETED":
+        refund_status = refund_detail_response.get("status")
+        if refund_status == "COMPLETED":
             refund.done()
-        elif refund_detail_response["status"] == "PENDING":
+        elif refund_status == "PENDING":
             refund.state = OrderRefund.REFUND_STATE_TRANSIT
             refund.save(update_fields=["state"])
         else:
+            refund_reason = safe_get(refund_detail_response, ["status_details", "reason"], "") or refund_status
             refund.order.log_action(
                 "eventyay.event.order.refund.failed",
                 {
                     "local_id": refund.local_id,
                     "provider": refund.provider,
-                    "error": str(refund_detail_response["status_details"]["reason"]),
+                    "error": refund_reason,
                 },
             )
-            raise PaymentException(
-                _("Refunding the amount via PayPal failed: {}").format(
-                    refund_detail_response["status_details"]["reason"]
-                )
-            )
+            raise PaymentException(_("Refunding the amount via PayPal failed: {}").format(refund_reason))
 
     def shred_payment_info(self, obj: OrderPayment | OrderRefund):
         if obj.info_data:
