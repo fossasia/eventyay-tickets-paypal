@@ -518,10 +518,18 @@ class Paypal(BasePaymentProvider):
         with contextlib.suppress(ReferencedPayPalObject.MultipleObjectsReturned):
             ReferencedPayPalObject.objects.get_or_create(order=payment.order, payment=payment, reference=order_id)
 
+        _unit = order_detail.get("purchase_units", [{}])[0]
+        _paypal_amount_str = safe_get(_unit, ["amount", "value"]) or "0"
+        try:
+            # Compare as Decimal so zero-decimal currencies (JPY, HUF, …) are not
+            # falsely rejected: format_price returns "1000" but PayPal may return
+            # "1000.00". String equality would fail; Decimal equality is correct.
+            _amounts_match = Decimal(self.format_price(payment.amount)) == Decimal(str(_paypal_amount_str))
+        except Exception:
+            _amounts_match = False
         if (
-            self.format_price(payment.amount)
-            != str(safe_get(order_detail.get("purchase_units", [{}])[0], ["amount", "value"]))
-            or safe_get(order_detail.get("purchase_units", [{}])[0], ["amount", "currency_code"]) != self.event.currency
+            not _amounts_match
+            or safe_get(_unit, ["amount", "currency_code"]) != self.event.currency
         ):
             logger.error(
                 "Value mismatch: Payment %s vs paypal trans %s",

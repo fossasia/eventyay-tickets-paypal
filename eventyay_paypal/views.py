@@ -128,9 +128,29 @@ def oauth_return(request, *args, **kwargs):
     event = get_object_or_404(Event, pk=request.session.get("payment_paypal_oauth_event"))
     merchant_id = request.GET.get("merchantIdInPayPal")
     event.settings.payment_paypal_connect_user_id = merchant_id
-    event.settings.payment_paypal_connect_user_name = merchant_id
     event.settings.payment_paypal_merchant_id = merchant_id
     event.settings.payment_paypal__enabled = True
+
+    # Attempt to resolve a human-readable display name (email) via the
+    # Partner Merchant Integrations API.  Falls back to merchant_id if the
+    # platform payer ID is not configured or the request fails.
+    prov = Paypal(event)
+    partner_payer_id = event.settings.get("payment_paypal_connect_partner_payer_id")
+    display_name = merchant_id  # safe default
+    if partner_payer_id and merchant_id:
+        merchant_info = prov.paypal_request_handler.get_merchant_integrations(
+            partner_payer_id=partner_payer_id,
+            merchant_id=merchant_id,
+        )
+        if not merchant_info.get("errors"):
+            info = merchant_info.get("response") or {}
+            display_name = info.get("primary_email") or info.get("merchant_id") or merchant_id
+        else:
+            logger.warning(
+                "Unable to fetch merchant display name from PayPal: %s",
+                merchant_info["errors"].get("reason", merchant_info["errors"]),
+            )
+    event.settings.payment_paypal_connect_user_name = display_name
 
     for key in required_session_params:
         request.session.pop(key, None)
@@ -342,7 +362,9 @@ def extract_order_and_payment(payment_id, event, event_json, prov, rpo=None):
         )
         payment = None
         for p in payments:
-            if paypal_payment_matches_capture(p.info_data, order_detail.get("id")):
+            # Match by stored order ID, not capture ID — the Order ID is not a
+            # capture ID, so paypal_payment_matches_capture would always return False.
+            if p.info_data.get("id") == order_detail.get("id"):
                 payment = p
                 break
 
@@ -424,7 +446,6 @@ def webhook(request, *args, **kwargs):
                     OrderRefund.REFUND_STATE_DONE,
                     OrderRefund.REFUND_STATE_TRANSIT,
                     OrderRefund.REFUND_STATE_CREATED,
-                    OrderRefund.REFUND_SOURCE_EXTERNAL,
                 )
             ).aggregate(s=Sum("amount"))["s"] or Decimal("0.00")
             total_refunded_amount = Decimal(seller_payable_breakdown_value)
@@ -440,7 +461,6 @@ def webhook(request, *args, **kwargs):
                     OrderRefund.REFUND_STATE_DONE,
                     OrderRefund.REFUND_STATE_TRANSIT,
                     OrderRefund.REFUND_STATE_CREATED,
-                    OrderRefund.REFUND_SOURCE_EXTERNAL,
                 )
             ).aggregate(s=Sum("amount"))["s"] or Decimal("0.00")
             if known_sum < payment.amount:

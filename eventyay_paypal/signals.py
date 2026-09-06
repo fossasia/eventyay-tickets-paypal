@@ -95,5 +95,18 @@ def register_global_settings(sender, **kwargs):
                     ),
                 ),
             ),
+            (
+                "payment_paypal_connect_partner_payer_id",
+                forms.CharField(
+                    label=_("PayPal Connect: Platform Payer ID"),
+                    required=False,
+                    help_text=_(
+                        "The PayPal merchant/payer ID of the platform's own PayPal account "
+                        "(found in the PayPal Developer Dashboard under your partner account). "
+                        "When set, Eventyay will fetch the connected merchant's email address "
+                        "from PayPal after OAuth onboarding and display it in the event settings."
+                    ),
+                ),
+            ),
         ]
     )

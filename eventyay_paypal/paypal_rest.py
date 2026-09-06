@@ -45,6 +45,9 @@ class PaypalRequestHandler:
         self.refund_detail_url = urllib.parse.urljoin(self.endpoint, "v2/payments/refunds/{refund_id}")
         self.refund_payment_url = urllib.parse.urljoin(self.endpoint, "v2/payments/captures/{capture_id}/refund")
         self.verify_webhook_url = urllib.parse.urljoin(self.endpoint, "v1/notifications/verify-webhook-signature")
+        self.merchant_integrations_url = urllib.parse.urljoin(
+            self.endpoint, "v1/customer/partners/{partner_payer_id}/merchant-integrations/{merchant_id}"
+        )
 
         self.paypal_request_id = self.get_paypal_request_id()
 
@@ -265,4 +268,24 @@ class PaypalRequestHandler:
             url=self.verify_webhook_url,
             method=HTTPMethod.POST,
             data=json.dumps(data),
+        )
+
+    def get_merchant_integrations(self, partner_payer_id: str, merchant_id: str) -> dict:
+        """Fetch merchant details (including email) from the PayPal Partner Referrals API.
+
+        Requires the *platform's* PayPal payer ID (``partner_payer_id``), which is the
+        merchant ID of the platform's own PayPal account — distinct from the OAuth
+        client_id.  This is a one-time value visible in the PayPal Developer Dashboard.
+
+        Returns a dict with ``response`` containing fields like ``email``, ``merchant_id``,
+        ``tracking_id``, and ``status`` on success, or ``errors`` on failure.
+        """
+        if not partner_payer_id or not merchant_id:
+            return {"errors": {"type": "MissingParams", "reason": "partner_payer_id and merchant_id are required", "exception": None}}
+        return self.authorized_request(
+            url=self.merchant_integrations_url.format(
+                partner_payer_id=partner_payer_id,
+                merchant_id=merchant_id,
+            ),
+            method=HTTPMethod.GET,
         )
