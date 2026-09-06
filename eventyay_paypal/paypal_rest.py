@@ -34,7 +34,8 @@ class PaypalRequestHandler:
             endpoint_setting = self.settings.get("endpoint") or "live"
 
         self.set_cache_token_key()
-        self.endpoint = resolve_paypal_api_base(endpoint_setting)
+        # urljoin drops the final path segment unless the base ends with "/".
+        self.endpoint = resolve_paypal_api_base(endpoint_setting).rstrip("/") + "/"
 
         self.oauth_url = urllib.parse.urljoin(self.endpoint, "v1/oauth2/token")
         self.partner_referrals_url = urllib.parse.urljoin(self.endpoint, "v2/customer/partner-referrals")

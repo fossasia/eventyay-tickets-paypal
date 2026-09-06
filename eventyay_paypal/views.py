@@ -116,11 +116,24 @@ def oauth_return(request, *args, **kwargs):
         )
         return redirect(reverse("control:index"))
 
+    tracking_id = request.session.get("payment_paypal_tracking_id")
+    # Partner Referrals returns merchantId as the tracking_id we issued for this onboarding.
+    if request.GET.get("merchantId") != tracking_id:
+        messages.error(
+            request,
+            _("An error occurred during connecting with PayPal, please try again."),
+        )
+        return redirect(reverse("control:index"))
+
     event = get_object_or_404(Event, pk=request.session.get("payment_paypal_oauth_event"))
-    event.settings.payment_paypal_connect_user_id = request.GET.get("merchantId")
-    event.settings.payment_paypal_connect_user_name = request.GET.get("merchantId")
-    event.settings.payment_paypal_merchant_id = request.GET.get("merchantIdInPayPal")
+    merchant_id = request.GET.get("merchantIdInPayPal")
+    event.settings.payment_paypal_connect_user_id = merchant_id
+    event.settings.payment_paypal_connect_user_name = merchant_id
+    event.settings.payment_paypal_merchant_id = merchant_id
     event.settings.payment_paypal__enabled = True
+
+    for key in required_session_params:
+        request.session.pop(key, None)
 
     messages.success(
         request,
@@ -349,6 +362,9 @@ def webhook(request, *args, **kwargs):
         event_json = json.loads(event_body)
     except json.JSONDecodeError:
         return HttpResponse("Invalid JSON", status=HTTPStatus.BAD_REQUEST)
+
+    if not isinstance(event_json, dict) or not isinstance(event_json.get("resource"), dict):
+        return HttpResponse("Invalid webhook payload", status=HTTPStatus.BAD_REQUEST)
 
     if event_json.get("resource_type") not in ("checkout-order", "refund", "capture"):
         return HttpResponse("Wrong resource type", status=HTTPStatus.BAD_REQUEST)

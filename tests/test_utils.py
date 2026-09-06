@@ -22,6 +22,11 @@ def test_safe_get_nested_and_missing_keys():
     assert safe_get({"a": "not-a-dict"}, ["a", "b"], default=None) is None
 
 
+def test_safe_get_empty_keys_returns_data():
+    data = {"id": "ORDER1"}
+    assert safe_get(data, []) is data
+
+
 def test_resolve_paypal_api_base_accepts_aliases_and_urls():
     assert resolve_paypal_api_base("sandbox") == "https://api-m.sandbox.paypal.com"
     assert resolve_paypal_api_base("test") == "https://api-m.sandbox.paypal.com"
