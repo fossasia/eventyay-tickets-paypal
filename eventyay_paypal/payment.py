@@ -4,7 +4,6 @@ import logging
 import urllib.parse
 from collections import OrderedDict
 from decimal import Decimal
-from typing import Union
 
 from django import forms
 from django.contrib import messages
@@ -16,7 +15,6 @@ from django.utils.crypto import get_random_string
 from django.utils.timezone import now
 from django.utils.translation import gettext as __
 from django.utils.translation import gettext_lazy as _
-from i18nfield.strings import LazyI18nString
 from eventyay.base.decimal import round_decimal
 from eventyay.base.models import Event, Order, OrderPayment, OrderRefund, Quota
 from eventyay.base.payment import BasePaymentProvider, PaymentException
@@ -24,6 +22,7 @@ from eventyay.base.services.mail import SendMailException
 from eventyay.base.settings import SettingsSandbox
 from eventyay.helpers.urls import build_absolute_uri as build_global_uri
 from eventyay.multidomain.urlreverse import build_absolute_uri
+from i18nfield.strings import LazyI18nString
 
 from .models import ReferencedPayPalObject
 from .paypal_rest import PaypalRequestHandler
@@ -107,12 +106,8 @@ class Paypal(BasePaymentProvider):
                         label=_("Client ID"),
                         max_length=80,
                         min_length=80,
-                        help_text=_(
-                            '<a target="_blank" rel="noopener" href="{docs_url}">{text}</a>'
-                        ).format(
-                            text=_(
-                                "Click here for a tutorial on how to obtain the required keys"
-                            ),
+                        help_text=_('<a target="_blank" rel="noopener" href="{docs_url}">{text}</a>').format(
+                            text=_("Click here for a tutorial on how to obtain the required keys"),
                             docs_url="https://docs.eventyay.com/en/latest/user/payments/paypal.html",
                         ),
                     ),
@@ -161,9 +156,7 @@ class Paypal(BasePaymentProvider):
             )
         ]
 
-        d = OrderedDict(
-            fields + extra_fields + list(super().settings_form_fields.items())
-        )
+        d = OrderedDict(fields + extra_fields + list(super().settings_form_fields.items()))
 
         d.move_to_end("prefix")
         d.move_to_end("_enabled", False)
@@ -197,11 +190,7 @@ class Paypal(BasePaymentProvider):
                     }
                 ],
                 "products": ["EXPRESS_CHECKOUT"],
-                "partner_config_override": {
-                    "return_url": build_global_uri(
-                        "plugins:eventyay_paypal:oauth.return"
-                    )
-                },
+                "partner_config_override": {"return_url": build_global_uri("plugins:eventyay_paypal:oauth.return")},
                 "legal_consents": [{"type": "SHARE_DATA_CONSENT", "granted": True}],
                 "tracking_id": request.session["payment_paypal_tracking_id"],
             },
@@ -210,9 +199,7 @@ class Paypal(BasePaymentProvider):
         if errors := response_data.get("errors"):
             messages.error(
                 request,
-                _("An error occurred during connecting with PayPal: {}").format(
-                    errors["reason"]
-                ),
+                _("An error occurred during connecting with PayPal: {}").format(errors["reason"]),
             )
             return
 
@@ -226,23 +213,17 @@ class Paypal(BasePaymentProvider):
         if self.settings.connect_client_id and not self.settings.secret:
             # Use PayPal connect
             if not self.settings.connect_user_id:
-                settings_content = (
-                    "<p>{}</p>" "<a href='{}' class='btn btn-primary btn-lg'>{}</a>"
-                ).format(
+                settings_content = ("<p>{}</p><a href='{}' class='btn btn-primary btn-lg'>{}</a>").format(
                     _(
                         "To accept payments via PayPal, you will need an account at PayPal. By clicking on the "
                         "following button, you can either create a new PayPal account connect Eventyay to an existing "
                         "one."
                     ),
                     self.get_connect_url(request),
-                    _("Connect with {icon} PayPal").format(
-                        icon='<i class="fa fa-paypal"></i>'
-                    ),
+                    _("Connect with {icon} PayPal").format(icon='<i class="fa fa-paypal"></i>'),
                 )
             else:
-                settings_content = (
-                    "<button formaction='{}' class='btn btn-danger'>{}</button>"
-                ).format(
+                settings_content = ("<button formaction='{}' class='btn btn-danger'>{}</button>").format(
                     reverse(
                         "plugins:eventyay_paypal:oauth.disconnect",
                         kwargs={
@@ -253,7 +234,7 @@ class Paypal(BasePaymentProvider):
                     _("Disconnect from PayPal"),
                 )
         else:
-            settings_content = "<div class='alert alert-info'>%s<br /><code>%s</code></div>" % (
+            settings_content = "<div class='alert alert-info'>{}<br /><code>{}</code></div>".format(
                 _(
                     "Please configure a PayPal Webhook to the following endpoint in order to automatically cancel orders "
                     "when payments are refunded externally. And set webhook id to make it work properly."
@@ -263,18 +244,16 @@ class Paypal(BasePaymentProvider):
 
         if self.event.currency not in SUPPORTED_CURRENCIES:
             settings_content += (
-                '<br><br><div class="alert alert-warning">%s '
-                '<a href="https://developer.paypal.com/docs/api/reference/currency-codes/">%s</a>'
+                '<br><br><div class="alert alert-warning">{} '
+                '<a href="https://developer.paypal.com/docs/api/reference/currency-codes/">{}</a>'
                 "</div>"
-            ) % (
+            ).format(
                 _("PayPal does not process payments in your event's currency."),
-                _(
-                    "Please check this PayPal page for a complete list of supported currencies."
-                ),
+                _("Please check this PayPal page for a complete list of supported currencies."),
             )
 
         if self.event.currency in LOCAL_ONLY_CURRENCIES:
-            settings_content += '<br><br><div class="alert alert-warning">%s' "</div>" % (
+            settings_content += '<br><br><div class="alert alert-warning">{}</div>'.format(
                 _(
                     "Your event's currency is supported by PayPal as a payment and balance currency for in-country "
                     "accounts only. This means, that the receiving as well as the sending PayPal account must have been "
@@ -286,10 +265,7 @@ class Paypal(BasePaymentProvider):
         return settings_content
 
     def is_allowed(self, request: HttpRequest, total: Decimal = None) -> bool:
-        return (
-            super().is_allowed(request, total)
-            and self.event.currency in SUPPORTED_CURRENCIES
-        )
+        return super().is_allowed(request, total) and self.event.currency in SUPPORTED_CURRENCIES
 
     def payment_is_valid_session(self, request):
         return (
@@ -327,11 +303,7 @@ class Paypal(BasePaymentProvider):
                     {
                         "items": [
                             {
-                                "name": (
-                                    f"{self.settings.prefix} "
-                                    if self.settings.prefix
-                                    else ""
-                                )
+                                "name": (f"{self.settings.prefix} " if self.settings.prefix else "")
                                 + __("Order for %s") % str(request.event),
                                 "quantity": "1",
                                 "unit_amount": {
@@ -350,9 +322,7 @@ class Paypal(BasePaymentProvider):
                                 }
                             },
                         },
-                        "description": __("Event tickets for {event}").format(
-                            event=request.event.name
-                        ),
+                        "description": __("Event tickets for {event}").format(event=request.event.name),
                         "payee": payee,
                     }
                 ],
@@ -441,9 +411,7 @@ class Paypal(BasePaymentProvider):
                 if request.session.get("iframe_session", False):
                     signer = signing.Signer(salt="safe-redirect")
                     return (
-                        build_absolute_uri(
-                            request.event, "plugins:eventyay_paypal:redirect"
-                        )
+                        build_absolute_uri(request.event, "plugins:eventyay_paypal:redirect")
                         + "?url="
                         + urllib.parse.quote(signer.sign(href))
                     )
@@ -478,9 +446,7 @@ class Paypal(BasePaymentProvider):
         paypal_payer = request.session.get("payment_paypal_payer", "")
         if not order_id or not paypal_payer:
             raise PaymentException(
-                _(
-                    "We were unable to process your payment. See below for details on how to proceed."
-                )
+                _("We were unable to process your payment. See below for details on how to proceed.")
             )
 
         order_response = self.paypal_request_handler.get_order(order_id=order_id)
@@ -494,21 +460,11 @@ class Paypal(BasePaymentProvider):
 
         order_detail = order_response.get("response")
         with contextlib.suppress(ReferencedPayPalObject.MultipleObjectsReturned):
-            ReferencedPayPalObject.objects.get_or_create(
-                order=payment.order, payment=payment, reference=order_id
-            )
+            ReferencedPayPalObject.objects.get_or_create(order=payment.order, payment=payment, reference=order_id)
 
         if (
-            str(
-                safe_get(
-                    order_detail.get("purchase_units", [{}])[0], ["amount", "value"]
-                )
-            )
-            != str(payment.amount)
-            or safe_get(
-                order_detail.get("purchase_units", [{}])[0], ["amount", "currency_code"]
-            )
-            != self.event.currency
+            str(safe_get(order_detail.get("purchase_units", [{}])[0], ["amount", "value"])) != str(payment.amount)
+            or safe_get(order_detail.get("purchase_units", [{}])[0], ["amount", "currency_code"]) != self.event.currency
         ):
             logger.error(
                 "Value mismatch: Payment %s vs paypal trans %s",
@@ -524,17 +480,13 @@ class Paypal(BasePaymentProvider):
                 }
             )
             raise PaymentException(
-                _(
-                    "We were unable to process your payment. See below for details on how to proceed."
-                )
+                _("We were unable to process your payment. See below for details on how to proceed.")
             )
 
         if order_detail["status"] == "APPROVED":
-            description = (
-                f"{self.settings.prefix} " if self.settings.prefix else ""
-            ) + __("Order {order} for {event}").format(
-                event=request.event.name, order=payment.order.code
-            )
+            description = (f"{self.settings.prefix} " if self.settings.prefix else "") + __(
+                "Order {order} for {event}"
+            ).format(event=request.event.name, order=payment.order.code)
 
             update_response = self.paypal_request_handler.update_order(
                 order_id=order_id,
@@ -554,9 +506,7 @@ class Paypal(BasePaymentProvider):
                     "Unable to patch order %s in Paypal: %s",
                 )
 
-            capture_response = self.paypal_request_handler.capture_order(
-                order_id=order_id
-            )
+            capture_response = self.paypal_request_handler.capture_order(order_id=order_id)
             if errors := capture_response.get("errors"):
                 handle_paypal_error(
                     errors,
@@ -568,9 +518,7 @@ class Paypal(BasePaymentProvider):
             captured_order = capture_response.get("response")
             for purchase_unit in captured_order.get("purchase_units", []):
                 for capture in safe_get(purchase_unit, ["payments", "captures"], []):
-                    with contextlib.suppress(
-                        ReferencedPayPalObject.MultipleObjectsReturned
-                    ):
+                    with contextlib.suppress(ReferencedPayPalObject.MultipleObjectsReturned):
                         ReferencedPayPalObject.objects.get_or_create(
                             order=payment.order,
                             payment=payment,
@@ -593,15 +541,11 @@ class Paypal(BasePaymentProvider):
             payment.fail(info=captured_order)
             logger.error("Invalid state: %s", repr(captured_order))
             raise PaymentException(
-                _(
-                    "We were unable to process your payment. See below for details on how to proceed."
-                )
+                _("We were unable to process your payment. See below for details on how to proceed.")
             )
 
         if payment.state == OrderPayment.PAYMENT_STATE_CONFIRMED:
-            logger.warning(
-                "PayPal success event even though order is already marked as paid"
-            )
+            logger.warning("PayPal success event even though order is already marked as paid")
             return
 
         try:
@@ -611,9 +555,7 @@ class Paypal(BasePaymentProvider):
         except Quota.QuotaExceededException as e:
             raise PaymentException(str(e)) from e
         except SendMailException:
-            messages.warning(
-                request, _("There was an error sending the confirmation mail.")
-            )
+            messages.warning(request, _("There was an error sending the confirmation mail."))
         return None
 
     def payment_pending_render(self, request, payment) -> str:
@@ -649,12 +591,8 @@ class Paypal(BasePaymentProvider):
     def api_payment_details(self, payment: OrderPayment):
         order_id = self.matching_id(payment)
         return {
-            "payer_email": safe_get(
-                payment.info_data, ["payer", "payer_info", "email"]
-            ),
-            "payer_id": safe_get(
-                payment.info_data, ["payer", "payer_info", "payer_id"]
-            ),
+            "payer_email": safe_get(payment.info_data, ["payer", "payer_info", "email"]),
+            "payer_id": safe_get(payment.info_data, ["payer", "payer_info", "payer_id"]),
             "cart_id": payment.info_data.get("cart", None),
             "payment_id": payment.info_data.get("id", None),
             "sale_id": order_id,
@@ -719,11 +657,7 @@ class Paypal(BasePaymentProvider):
                     "error": str(errors),
                 },
             )
-            raise PaymentException(
-                _(
-                    "An error occurred while communicating with PayPal, please try again."
-                )
-            )
+            raise PaymentException(_("An error occurred while communicating with PayPal, please try again."))
 
         refund_payment_response = refund_payment.get("response")
         refund.info = json.dumps(refund_payment_response)
@@ -744,11 +678,7 @@ class Paypal(BasePaymentProvider):
                     "error": str(errors),
                 },
             )
-            raise PaymentException(
-                _(
-                    "An error occurred while communicating with PayPal, please try again."
-                )
-            )
+            raise PaymentException(_("An error occurred while communicating with PayPal, please try again."))
 
         refund_detail_response = refund_detail.get("response")
         refund.info = json.dumps(refund_detail_response)
@@ -795,11 +725,7 @@ class Paypal(BasePaymentProvider):
                     {
                         "items": [
                             {
-                                "name": (
-                                    f"{self.settings.prefix} "
-                                    if self.settings.prefix
-                                    else ""
-                                )
+                                "name": (f"{self.settings.prefix} " if self.settings.prefix else "")
                                 + __("Order for %s") % str(request.event),
                                 "quantity": "1",
                                 "unit_amount": {
@@ -818,9 +744,7 @@ class Paypal(BasePaymentProvider):
                                 }
                             },
                         },
-                        "description": __("Event tickets for {event}").format(
-                            event=request.event.name
-                        ),
+                        "description": __("Event tickets for {event}").format(event=request.event.name),
                         "payee": payee,
                     }
                 ],
@@ -829,12 +753,8 @@ class Paypal(BasePaymentProvider):
                         "experience_context": {
                             "payment_method_preference": "UNRESTRICTED",
                             "landing_page": "LOGIN",
-                            "return_url": build_absolute_uri(
-                                request.event, "plugins:eventyay_paypal:return"
-                            ),
-                            "cancel_url": build_absolute_uri(
-                                request.event, "plugins:eventyay_paypal:abort"
-                            ),
+                            "return_url": build_absolute_uri(request.event, "plugins:eventyay_paypal:return"),
+                            "cancel_url": build_absolute_uri(request.event, "plugins:eventyay_paypal:abort"),
                         }
                     }
                 },
@@ -845,9 +765,7 @@ class Paypal(BasePaymentProvider):
             errors = order_response.get("errors")
             messages.error(
                 request,
-                _("An error occurred during connecting with PayPal: {}").format(
-                    errors["reason"]
-                ),
+                _("An error occurred during connecting with PayPal: {}").format(errors["reason"]),
             )
             return None
 
@@ -855,7 +773,7 @@ class Paypal(BasePaymentProvider):
         request.session["payment_paypal_payment"] = None
         return self._create_order(request, order_created)
 
-    def shred_payment_info(self, obj: Union[OrderPayment, OrderRefund]):
+    def shred_payment_info(self, obj: OrderPayment | OrderRefund):
         if obj.info_data:
             d = obj.info_data
             purchase_units = d.get("purchase_units", [])
@@ -872,9 +790,7 @@ class Paypal(BasePaymentProvider):
             obj.save(update_fields=["info"])
 
         for le in (
-            obj.order.all_logentries()
-            .filter(action_type="eventyay.plugins.eventyay_paypal.event")
-            .exclude(data="")
+            obj.order.all_logentries().filter(action_type="eventyay.plugins.eventyay_paypal.event").exclude(data="")
         ):
             d = le.parsed_data
             if "resource" in d:
@@ -889,12 +805,12 @@ class Paypal(BasePaymentProvider):
 
     def render_invoice_text(self, order: Order, payment: OrderPayment) -> str:
         if order.status == Order.STATUS_PAID:
-            payment_id = payment.info_data.get('id')
+            payment_id = payment.info_data.get("id")
             if not payment_id:
                 return super().render_invoice_text(order, payment)
 
             try:
-                paypal_sale_id = payment.info_data['transactions'][0]['related_resources'][0]['sale']['id']
+                paypal_sale_id = payment.info_data["transactions"][0]["related_resources"][0]["sale"]["id"]
                 return (
                     f"{_('The payment for this invoice has already been received.')}\r\n"
                     f"{_('PayPal payment ID')}: {payment_id}\r\n"
@@ -905,4 +821,4 @@ class Paypal(BasePaymentProvider):
                     f"{_('The payment for this invoice has already been received.')}\r\n"
                     f"{_('PayPal payment ID')}: {payment_id}"
                 )
-        return self.settings.get('_invoice_text', as_type=LazyI18nString, default='')
+        return self.settings.get("_invoice_text", as_type=LazyI18nString, default="")

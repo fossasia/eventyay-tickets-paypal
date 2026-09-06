@@ -85,13 +85,13 @@ From the ``eventyay-paypal`` directory, install the plugin in editable mode.
 
 .. code-block:: bash
 
-   pip install -e .
+   pip install -e ".[dev]"
 
 If your Eventyay development setup uses ``uv``, you can also use:
 
 .. code-block:: bash
 
-   uv pip install -e .
+   uv pip install -e ".[dev]"
 
 5. Apply migrations
 ~~~~~~~~~~~~~~~~~~~
@@ -144,7 +144,7 @@ PayPal Connect
 
 PayPal Connect allows an organiser to connect an event to a PayPal account through the Eventyay payment settings.
 
-When PayPal Connect is configured globally, the organiser sees a connect button in the event payment settings. After the account has been connected successfully, Eventyay stores the PayPal account reference for the event.
+When PayPal Connect is configured globally, the event payment settings show a **Connect with PayPal** OAuth button. Organisers can create a PayPal account or link an existing one without pasting API keys. After a successful connection, Eventyay stores the PayPal merchant reference for the event and enables PayPal payments.
 
 Global PayPal Connect settings include:
 
@@ -253,7 +253,7 @@ Install the plugin in editable mode:
 
 .. code-block:: bash
 
-   pip install -e .
+   pip install -e ".[dev]"
 
 Compile translations:
 
@@ -266,6 +266,15 @@ Regenerate translation files:
 .. code-block:: bash
 
    make localegen
+
+Lint and format Python with Ruff:
+
+.. code-block:: bash
+
+   ruff check .
+   ruff check . --fix
+   ruff format --check .
+   ruff format .
 
 Run tests, if tests are available in the checkout:
 

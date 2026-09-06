@@ -1,4 +1,3 @@
-
 def safe_get(data, keys, default=None):
     """
     Recursively calls .get() on a dictionary to safely access nested keys.
