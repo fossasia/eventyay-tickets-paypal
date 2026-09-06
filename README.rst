@@ -267,6 +267,15 @@ Regenerate translation files:
 
    make localegen
 
+Lint and format Python with Ruff:
+
+.. code-block:: bash
+
+   ruff check .
+   ruff check . --fix
+   ruff format --check .
+   ruff format .
+
 Run tests, if tests are available in the checkout:
 
 .. code-block:: bash

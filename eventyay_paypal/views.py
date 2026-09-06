@@ -1,7 +1,7 @@
 import contextlib
 import json
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from http import HTTPStatus
 
@@ -79,10 +79,7 @@ def oauth_return(request, *args, **kwargs):
 
     messages.success(
         request,
-        _(
-            "Your PayPal account is now connected to Eventyay. You can change the settings in "
-            "detail below."
-        ),
+        _("Your PayPal account is now connected to Eventyay. You can change the settings in detail below."),
     )
 
     return redirect(
@@ -108,9 +105,7 @@ def success(request, *args, **kwargs):
         urlkwargs["cart_namespace"] = kwargs["cart_namespace"]
 
     if request.session.get("payment_paypal_payment"):
-        payment = OrderPayment.objects.get(
-            pk=request.session.get("payment_paypal_payment")
-        )
+        payment = OrderPayment.objects.get(pk=request.session.get("payment_paypal_payment"))
     else:
         payment = None
 
@@ -122,20 +117,14 @@ def success(request, *args, **kwargs):
             except PaymentException as e:
                 messages.error(request, str(e))
                 urlkwargs["step"] = "payment"
-                return redirect(
-                    eventreverse(
-                        request.event, "presale:event.checkout", kwargs=urlkwargs
-                    )
-                )
+                return redirect(eventreverse(request.event, "presale:event.checkout", kwargs=urlkwargs))
             if resp:
                 return resp
     else:
         messages.error(request, _("Invalid response from PayPal received."))
         logger.error("Session did not contain payment_paypal_order_id")
         urlkwargs["step"] = "payment"
-        return redirect(
-            eventreverse(request.event, "presale:event.checkout", kwargs=urlkwargs)
-        )
+        return redirect(eventreverse(request.event, "presale:event.checkout", kwargs=urlkwargs))
 
     if payment:
         return redirect(
@@ -147,18 +136,14 @@ def success(request, *args, **kwargs):
             + ("?paid=yes" if payment.order.status == Order.STATUS_PAID else "")
         )
     urlkwargs["step"] = "confirm"
-    return redirect(
-        eventreverse(request.event, "presale:event.checkout", kwargs=urlkwargs)
-    )
+    return redirect(eventreverse(request.event, "presale:event.checkout", kwargs=urlkwargs))
 
 
 def abort(request, *args, **kwargs):
     messages.error(request, _("It looks like you canceled the PayPal payment"))
 
     if request.session.get("payment_paypal_payment"):
-        payment = OrderPayment.objects.get(
-            pk=request.session.get("payment_paypal_payment")
-        )
+        payment = OrderPayment.objects.get(pk=request.session.get("payment_paypal_payment"))
     else:
         payment = None
 
@@ -172,11 +157,7 @@ def abort(request, *args, **kwargs):
             + ("?paid=yes" if payment.order.status == Order.STATUS_PAID else "")
         )
     else:
-        return redirect(
-            eventreverse(
-                request.event, "presale:event.checkout", kwargs={"step": "payment"}
-            )
-        )
+        return redirect(eventreverse(request.event, "presale:event.checkout", kwargs={"step": "payment"}))
 
 
 def check_webhook_signature(request, event, event_json, prov) -> bool:
@@ -202,10 +183,8 @@ def check_webhook_signature(request, event, event_json, prov) -> bool:
         return False
 
     # Prevent replay attacks: check timestamp
-    current_time = datetime.now(timezone.utc)
-    transmission_time = datetime.fromisoformat(
-        request.headers.get("PAYPAL-TRANSMISSION-TIME")
-    )
+    current_time = datetime.now(UTC)
+    transmission_time = datetime.fromisoformat(request.headers.get("PAYPAL-TRANSMISSION-TIME"))
     if current_time - transmission_time > timedelta(minutes=7):
         logger.error("Paypal webhook timestamp is too old.")
         return False
@@ -222,11 +201,7 @@ def check_webhook_signature(request, event, event_json, prov) -> bool:
         }
     )
 
-    if (
-        verify_response.get("errors")
-        or safe_get(verify_response, ["response", "verification_status"], "")
-        == "FAILURE"
-    ):
+    if verify_response.get("errors") or safe_get(verify_response, ["response", "verification_status"], "") == "FAILURE":
         errors = verify_response.get("errors")
         logger.error("Unable to verify signature of webhook: %s", errors["reason"])
         return False
@@ -255,19 +230,12 @@ def parse_webhook_event(request, event_json):
     references = [payment_id]
 
     # For filtering reference, there are a lot of ids appear within json__event
-    if ref_order_id := (
-        safe_get(
-            event_json,
-            ["resource", "supplementary_data", "related_ids", "order_id"]
-        )
-    ):
+    if ref_order_id := (safe_get(event_json, ["resource", "supplementary_data", "related_ids", "order_id"])):
         references.append(ref_order_id)
 
     # Grasp the corresponding RPO
     rpo = (
-        ReferencedPayPalObject.objects.select_related("order", "order__event")
-        .filter(reference__in=references)
-        .first()
+        ReferencedPayPalObject.objects.select_related("order", "order__event").filter(reference__in=references).first()
     )
 
     if rpo:
@@ -312,14 +280,8 @@ def extract_order_and_payment(payment_id, event, event_json, prov, rpo=None):
         )
         payment = None
         for p in payments:
-            if (
-                "info_data" in p
-                and "purchase_units" in p.info_data
-                and p.info_data["purchase_units"]
-            ):
-                for capture in safe_get(
-                    p.info_data["purchase_units"][0], ["payments", "captures"], []
-                ):
+            if "info_data" in p and "purchase_units" in p.info_data and p.info_data["purchase_units"]:
+                for capture in safe_get(p.info_data["purchase_units"][0], ["payments", "captures"], []):
                     if capture.get("status") in [
                         "COMPLETED",
                         "PARTIALLY_REFUNDED",
@@ -354,9 +316,7 @@ def webhook(request, *args, **kwargs):
     if not check_webhook_signature(request, event, event_json, prov):
         return HttpResponse("Unable to verify signature of webhook", status=HTTPStatus.BAD_REQUEST)
 
-    order_detail, payment = extract_order_and_payment(
-        payment_id, event, event_json, prov, rpo
-    )
+    order_detail, payment = extract_order_and_payment(payment_id, event, event_json, prov, rpo)
     if order_detail is None or payment is None:
         return HttpResponse("Order or payment not found", status=HTTPStatus.BAD_REQUEST)
 
@@ -371,20 +331,14 @@ def webhook(request, *args, **kwargs):
         if errors := refund_response.get("errors"):
             logger.error("Paypal error on webhook: %s", errors["reason"])
             logger.exception("PayPal error on webhook. Event data: %s", str(event_json))
-            return HttpResponse(
-                f'Refund {refund_id_in_event} not found', status=HTTPStatus.BAD_REQUEST
-            )
+            return HttpResponse(f"Refund {refund_id_in_event} not found", status=HTTPStatus.BAD_REQUEST)
 
         refund_detail = refund_response.get("response")
         if refund_id := refund_detail.get("id"):
-            known_refunds = {
-                refund.info_data.get("id"): refund for refund in payment.refunds.all()
-            }
+            known_refunds = {refund.info_data.get("id"): refund for refund in payment.refunds.all()}
             if refund_id not in known_refunds:
                 payment.create_external_refund(
-                    amount=abs(
-                        Decimal(safe_get(refund_detail, ["amount", "value"], "0.00"))
-                    ),
+                    amount=abs(Decimal(safe_get(refund_detail, ["amount", "value"], "0.00"))),
                     info=json.dumps(refund_detail),
                 )
             elif know_refund := known_refunds.get(refund_id):
@@ -436,18 +390,14 @@ def webhook(request, *args, **kwargs):
                 request.session["payment_paypal_order_id"] = payment.info_data.get("id")
                 payment.payment_provider.execute_payment(request, payment)
             except PaymentException as e:
-                logger.error(
-                    "Error executing approved payment in webhook: payment not yet populated."
-                )
+                logger.error("Error executing approved payment in webhook: payment not yet populated.")
                 logger.exception("Unable to execute payment in webhook: %s", str(e))
         elif order_detail.get("status") == "COMPLETED":
             captured = False
             captures_completed = True
             for purchase_unit in order_detail.get("purchase_units", []):
                 for capture in safe_get(purchase_unit, ["payment", "captures"], []):
-                    with contextlib.suppress(
-                        ReferencedPayPalObject.MultipleObjectsReturned
-                    ):
+                    with contextlib.suppress(ReferencedPayPalObject.MultipleObjectsReturned):
                         ReferencedPayPalObject.objects.get_or_create(
                             order=payment.order,
                             payment=payment,
@@ -467,9 +417,11 @@ def webhook(request, *args, **kwargs):
                     payment.save(update_fields=["info"])
                     payment.confirm()
 
-    if payment.state == OrderPayment.PAYMENT_STATE_CONFIRMED and order_detail[
-        "status"
-    ] in ("PARTIALLY_REFUNDED", "REFUNDED", "COMPLETED"):
+    if payment.state == OrderPayment.PAYMENT_STATE_CONFIRMED and order_detail["status"] in (
+        "PARTIALLY_REFUNDED",
+        "REFUNDED",
+        "COMPLETED",
+    ):
         handle_payment_state_confirmed()
     elif payment.state in (
         OrderPayment.PAYMENT_STATE_PENDING,

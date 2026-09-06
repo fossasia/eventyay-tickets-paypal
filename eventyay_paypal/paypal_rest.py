@@ -6,7 +6,6 @@ import time
 import urllib.parse
 import uuid
 from http import HTTPMethod
-from typing import List, Optional
 
 import jwt
 import requests
@@ -39,27 +38,13 @@ class PaypalRequestHandler:
             self.endpoint = "https://api-m.paypal.com"
 
         self.oauth_url = urllib.parse.urljoin(self.endpoint, "v1/oauth2/token")
-        self.partner_referrals_url = urllib.parse.urljoin(
-            self.endpoint, "/v2/customer/partner-referrals"
-        )
-        self.order_url = urllib.parse.urljoin(
-            self.endpoint, "v2/checkout/orders/{order_id}"
-        )
-        self.create_order_url = urllib.parse.urljoin(
-            self.endpoint, "v2/checkout/orders"
-        )
-        self.capture_order_url = urllib.parse.urljoin(
-            self.endpoint, "v2/checkout/orders/{order_id}/capture"
-        )
-        self.refund_detail_url = urllib.parse.urljoin(
-            self.endpoint, "v2/payments/refunds/{refund_id}"
-        )
-        self.refund_payment_url = urllib.parse.urljoin(
-            self.endpoint, "v2/payments/captures/{capture_id}/refund"
-        )
-        self.verify_webhook_url = urllib.parse.urljoin(
-            self.endpoint, "/v1/notifications/verify-webhook-signature"
-        )
+        self.partner_referrals_url = urllib.parse.urljoin(self.endpoint, "/v2/customer/partner-referrals")
+        self.order_url = urllib.parse.urljoin(self.endpoint, "v2/checkout/orders/{order_id}")
+        self.create_order_url = urllib.parse.urljoin(self.endpoint, "v2/checkout/orders")
+        self.capture_order_url = urllib.parse.urljoin(self.endpoint, "v2/checkout/orders/{order_id}/capture")
+        self.refund_detail_url = urllib.parse.urljoin(self.endpoint, "v2/payments/refunds/{refund_id}")
+        self.refund_payment_url = urllib.parse.urljoin(self.endpoint, "v2/payments/captures/{capture_id}/refund")
+        self.verify_webhook_url = urllib.parse.urljoin(self.endpoint, "/v1/notifications/verify-webhook-signature")
 
         self.paypal_request_id = self.get_paypal_request_id()
 
@@ -77,18 +62,12 @@ class PaypalRequestHandler:
         response_data = {}
         try:
             if method == HTTPMethod.GET:
-                response = requests.get(
-                    url, data=data, params=params, headers=headers, timeout=timeout
-                )
+                response = requests.get(url, data=data, params=params, headers=headers, timeout=timeout)
             elif method == HTTPMethod.POST:
-                response = requests.post(
-                    url, data=data, params=params, headers=headers, timeout=timeout
-                )
+                response = requests.post(url, data=data, params=params, headers=headers, timeout=timeout)
             elif method == HTTPMethod.PATCH:
                 # Patch request return empty body
-                requests.patch(
-                    url, data=data, params=params, headers=headers, timeout=timeout
-                )
+                requests.patch(url, data=data, params=params, headers=headers, timeout=timeout)
                 return {}
 
             # In case request failed, capture specific reason
@@ -123,9 +102,7 @@ class PaypalRequestHandler:
     @staticmethod
     def check_expired_token(access_token_data: dict, buffer_time: int = 300) -> bool:
         current_time = time.time()
-        expiration_time = (
-            access_token_data["created_at"] + access_token_data["expires_in"]
-        )
+        expiration_time = access_token_data["created_at"] + access_token_data["expires_in"]
         return (current_time + buffer_time) > expiration_time
 
     @staticmethod
@@ -138,9 +115,7 @@ class PaypalRequestHandler:
 
     def set_cache_token_key(self) -> str:
         if self.connect_client_id and self.secret_key:
-            hash_code = hashlib.sha256(
-                "".join([self.connect_client_id, self.secret_key]).encode()
-            ).hexdigest()
+            hash_code = hashlib.sha256("".join([self.connect_client_id, self.secret_key]).encode()).hexdigest()
             self.cache_token_key = f"paypal_token_hash_{hash_code}"
             # Fernet key must be 32 urlsafe b64encode
             self.fernet = Fernet(base64.urlsafe_b64encode(hash_code[:32].encode()))
@@ -169,7 +144,7 @@ class PaypalRequestHandler:
             payload={"iss": self.connect_client_id, "payer_id": merchant_id},
         )
 
-    def get_access_token(self) -> Optional[str]:
+    def get_access_token(self) -> str | None:
         """
         https://developer.paypal.com/api/rest/authentication/
         Get access token data from cache and check expiration
@@ -189,18 +164,14 @@ class PaypalRequestHandler:
             )
 
             if errors := access_token_response.get("errors"):
-                logger.error(
-                    "Error getting access token from Paypal: %s", errors["reason"]
-                )
+                logger.error("Error getting access token from Paypal: %s", errors["reason"])
                 return {}
 
             access_token_data = access_token_response.get("response")
             # Add this key value to check for token expiration later
             access_token_data["created_at"] = time.time()
             # Encrypt access token data and set in cache
-            encrypted_access_token_data = self.fernet.encrypt(
-                json.dumps(access_token_data).encode()
-            )
+            encrypted_access_token_data = self.fernet.encrypt(json.dumps(access_token_data).encode())
             cache.set(self.cache_token_key, encrypted_access_token_data, 3600 * 2)
             return access_token_data
 
@@ -209,9 +180,7 @@ class PaypalRequestHandler:
         if encrypted_access_token_data is None:
             access_token_data = request_new_access_token()
         else:
-            access_token_data = json.loads(
-                self.fernet.decrypt(encrypted_access_token_data).decode()
-            )
+            access_token_data = json.loads(self.fernet.decrypt(encrypted_access_token_data).decode())
 
             if self.check_expired_token(access_token_data):
                 access_token_data = request_new_access_token()
@@ -272,7 +241,7 @@ class PaypalRequestHandler:
             },
         )
 
-    def update_order(self, order_id: str, update_data: List[dict]) -> dict:
+    def update_order(self, order_id: str, update_data: list[dict]) -> dict:
         """
         https://developer.paypal.com/docs/api/orders/v2/#orders_patch
         """
