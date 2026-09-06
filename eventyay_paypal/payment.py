@@ -26,7 +26,14 @@ from i18nfield.strings import LazyI18nString
 
 from .models import ReferencedPayPalObject
 from .paypal_rest import PaypalRequestHandler
-from .utils import canonical_paypal_endpoint, is_paypal_sandbox, safe_get, uses_paypal_connect
+from .utils import (
+    canonical_paypal_endpoint,
+    is_paypal_sandbox,
+    paypal_approval_href,
+    paypal_payee_block,
+    safe_get,
+    uses_paypal_connect,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -381,8 +388,9 @@ class Paypal(BasePaymentProvider):
             "description": __("Event tickets for {event}").format(event=request.event.name),
         }
         merchant_id = self._connected_merchant_id()
-        if merchant_id:
-            purchase_unit["payee"] = {"merchant_id": merchant_id}
+        payee = paypal_payee_block(merchant_id)
+        if payee:
+            purchase_unit["payee"] = payee
         return {
             "intent": "CAPTURE",
             "purchase_units": [purchase_unit],
@@ -443,19 +451,16 @@ class Paypal(BasePaymentProvider):
             return
 
         request.session["payment_paypal_order_id"] = order["id"]
-        for link in order.get("links", []):
-            if link.get("rel") in ("payer-action", "approve"):
-                href = link.get("href")
-                if not href:
-                    continue
-                if request.session.get("iframe_session", False):
-                    signer = signing.Signer(salt="safe-redirect")
-                    return (
-                        build_absolute_uri(request.event, "plugins:eventyay_paypal:redirect")
-                        + "?url="
-                        + urllib.parse.quote(signer.sign(href))
-                    )
-                return str(href)
+        href = paypal_approval_href(order)
+        if href:
+            if request.session.get("iframe_session", False):
+                signer = signing.Signer(salt="safe-redirect")
+                return (
+                    build_absolute_uri(request.event, "plugins:eventyay_paypal:redirect")
+                    + "?url="
+                    + urllib.parse.quote(signer.sign(href))
+                )
+            return str(href)
         messages.error(request, _("We had trouble communicating with PayPal"))
         logger.error("PayPal order %s did not include an approval URL: %s", order.get("id"), order)
         return None

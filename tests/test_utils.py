@@ -4,7 +4,9 @@ from eventyay_paypal.utils import (
     build_paypal_auth_assertion,
     canonical_paypal_endpoint,
     is_paypal_sandbox,
+    paypal_approval_href,
     paypal_error_reason,
+    paypal_payee_block,
     resolve_paypal_api_base,
     safe_get,
     uses_paypal_connect,
@@ -75,3 +77,21 @@ def test_paypal_error_reason_falls_back_to_details_and_reason():
             raise ValueError("not json")
 
     assert paypal_error_reason(BrokenResponse(), fallback="") == "Bad Gateway"
+
+
+def test_paypal_payee_block_omits_empty_merchant():
+    assert paypal_payee_block(None) is None
+    assert paypal_payee_block("") is None
+    assert paypal_payee_block("MERCHANT1") == {"merchant_id": "MERCHANT1"}
+
+
+def test_paypal_approval_href_accepts_new_and_legacy_link_rels():
+    assert paypal_approval_href({"links": [{"rel": "payer-action", "href": "https://paypal.test/act"}]}) == (
+        "https://paypal.test/act"
+    )
+    assert paypal_approval_href({"links": [{"rel": "approve", "href": "https://paypal.test/approve"}]}) == (
+        "https://paypal.test/approve"
+    )
+    assert paypal_approval_href({"links": [{"rel": "self", "href": "https://paypal.test/self"}]}) is None
+    assert paypal_approval_href({"links": [{"rel": "approve"}]}) is None
+    assert paypal_approval_href(None) is None

@@ -55,6 +55,27 @@ def uses_paypal_connect(settings) -> bool:
     return bool(settings.connect_client_id and settings.connect_secret_key)
 
 
+def paypal_payee_block(merchant_id: str | None) -> dict | None:
+    """Omit payee entirely unless Connect provided a merchant id (empty payee breaks checkout)."""
+    if not merchant_id:
+        return None
+    return {"merchant_id": merchant_id}
+
+
+def paypal_approval_href(order: dict | None) -> str | None:
+    """PayPal returns payer-action on newer Orders APIs and approve on older ones."""
+    if not order:
+        return None
+    for link in order.get("links") or []:
+        if not isinstance(link, dict):
+            continue
+        if link.get("rel") in {"payer-action", "approve"}:
+            href = link.get("href")
+            if href:
+                return href
+    return None
+
+
 def paypal_error_reason(response, fallback: str = "") -> str:
     """Extract a human-readable error from a PayPal HTTP response."""
     try:
