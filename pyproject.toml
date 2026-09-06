@@ -3,7 +3,7 @@ name = "eventyay-paypal"
 dynamic = ["version"]
 description = "Integrates eventyay-tickets with paypal"
 readme = "README.rst"
-requires-python = ">=3.11"
+requires-python = ">=3.12, <3.13"
 license = {file = "LICENSE"}
 keywords = ["eventyay-tickets", "eventyay_paypal", "paypal", "eventyay"]
 authors = [
@@ -16,24 +16,27 @@ maintainers = [
 dependencies = []
 
 [project.optional-dependencies]
+test = [
+    "pytest>=9.1.1",
+    "pytest-django>=4.14.0",
+    "pytest-env>=1.7.0",
+    "pytest-rerunfailures>=16.6",
+]
+
+[dependency-groups]
 dev = [
-    "ruff>=0.9",
+    "ruff>=0.16.5",
 ]
 
 [project.entry-points."pretix.plugin"]
 eventyay_paypal = "eventyay_paypal:PretixPluginMeta"
 
-[project.entry-points."distutils.commands"]
-build = "pretix_plugin_build.build:CustomBuild"
-
 [build-system]
-requires = [
-    "setuptools",
-    "pretix-plugin-build",
-]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
 
 [project.urls]
-homepage = "https://github.com/fossasia/eventyay-tickets"
+homepage = "https://github.com/fossasia/eventyay-paypal"
 
 [tool.setuptools]
 include-package-data = true
@@ -47,7 +50,7 @@ namespaces = false
 
 [tool.ruff]
 line-length = 120
-target-version = "py311"
+target-version = "py312"
 extend-exclude = ["**/migrations"]
 
 [tool.ruff.lint]
@@ -61,3 +64,16 @@ ignore = ["E501"]
 quote-style = "double"
 indent-style = "space"
 line-ending = "auto"
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "eventyay.config.settings"
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.pytest_env]
+EVY_RUNNING_ENVIRONMENT = "testing"
+EVY_POSTGRES_HOST = "localhost"
+EVY_POSTGRES_PORT = "5432"
+EVY_POSTGRES_USER = "postgres"
+EVY_POSTGRES_PASSWORD = "postgres"
+EVY_POSTGRES_DB = "eventyay-db"
