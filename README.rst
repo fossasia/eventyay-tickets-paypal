@@ -144,7 +144,7 @@ PayPal Connect
 
 PayPal Connect allows an organiser to connect an event to a PayPal account through the Eventyay payment settings.
 
-When PayPal Connect is configured globally, the organiser sees a connect button in the event payment settings. After the account has been connected successfully, Eventyay stores the PayPal account reference for the event.
+When PayPal Connect is configured globally, the event payment settings show a **Connect with PayPal** OAuth button. Organisers can create a PayPal account or link an existing one without pasting API keys. After a successful connection, Eventyay stores the PayPal merchant reference for the event and enables PayPal payments.
 
 Global PayPal Connect settings include:
 

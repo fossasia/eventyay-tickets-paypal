@@ -6,6 +6,7 @@ from .views import (
     abort,
     oauth_disconnect,
     oauth_return,
+    oauth_start,
     redirect_view,
     success,
     webhook,
@@ -28,6 +29,11 @@ event_patterns = [
 ]
 
 urlpatterns = [
+    url(
+        r"^control/event/(?P<organizer>[^/]+)/(?P<event>[^/]+)/paypal/connect/",
+        oauth_start,
+        name="oauth.start",
+    ),
     url(
         r"^control/event/(?P<organizer>[^/]+)/(?P<event>[^/]+)/paypal/disconnect/",
         oauth_disconnect,

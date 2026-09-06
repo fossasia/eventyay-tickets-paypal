@@ -14,7 +14,7 @@ from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
 from django.views.decorators.clickjacking import xframe_options_exempt
 from django.views.decorators.csrf import csrf_exempt
-from django.views.decorators.http import require_POST
+from django.views.decorators.http import require_GET, require_POST
 from django_scopes import scopes_disabled
 from eventyay.base.models import Event, Order, OrderPayment, OrderRefund, Quota
 from eventyay.base.payment import PaymentException
@@ -47,18 +47,57 @@ def redirect_view(request, *args, **kwargs):
     return r
 
 
+@event_permission_required("can_change_event_settings")
+@require_GET
+def oauth_start(request, **kwargs):
+    """Start PayPal Connect onboarding without calling PayPal during settings render."""
+    prov = Paypal(request.event)
+    if not prov.connect_configured():
+        messages.error(
+            request,
+            _("PayPal Connect is not yet configured. Please ask your administrator to set up the credentials."),
+        )
+        return redirect(
+            reverse(
+                "control:event.settings.payment.provider",
+                kwargs={
+                    "organizer": request.event.organizer.slug,
+                    "event": request.event.slug,
+                    "provider": "paypal",
+                },
+            )
+        )
+    url = prov.get_connect_url(request)
+    if not url:
+        return redirect(
+            reverse(
+                "control:event.settings.payment.provider",
+                kwargs={
+                    "organizer": request.event.organizer.slug,
+                    "event": request.event.slug,
+                    "provider": "paypal",
+                },
+            )
+        )
+    return redirect(url)
+
+
 @scopes_disabled()
 def oauth_return(request, *args, **kwargs):
     """
     https://developer.paypal.com/docs/multiparty/seller-onboarding/before-payment/
     Reference for seller onboarding
     """
+    if request.GET.get("error"):
+        messages.error(
+            request,
+            _("PayPal returned an error: {}").format(request.GET.get("error_description") or request.GET.get("error")),
+        )
+        return redirect(reverse("control:index"))
+
     required_params = [
         "merchantId",
         "merchantIdInPayPal",
-        "permissionsGranted",
-        "consentStatus",
-        "isEmailConfirmed",
     ]
     required_session_params = [
         "payment_paypal_oauth_event",
@@ -73,9 +112,18 @@ def oauth_return(request, *args, **kwargs):
         )
         return redirect(reverse("control:index"))
 
+    if request.GET.get("permissionsGranted") == "false":
+        messages.error(
+            request,
+            _("PayPal permissions were not granted. Please try connecting again and approve the requested access."),
+        )
+        return redirect(reverse("control:index"))
+
     event = get_object_or_404(Event, pk=request.session.get("payment_paypal_oauth_event"))
     event.settings.payment_paypal_connect_user_id = request.GET.get("merchantId")
+    event.settings.payment_paypal_connect_user_name = request.GET.get("merchantId")
     event.settings.payment_paypal_merchant_id = request.GET.get("merchantIdInPayPal")
+    event.settings.payment_paypal__enabled = True
 
     messages.success(
         request,
@@ -98,7 +146,10 @@ def success(request, *args, **kwargs):
     token = request.GET.get("token")
     payer = request.GET.get("PayerID")
     request.session["payment_paypal_token"] = token
-    request.session["payment_paypal_payer"] = payer
+    if payer:
+        request.session["payment_paypal_payer"] = payer
+    if token and not request.session.get("payment_paypal_order_id"):
+        request.session["payment_paypal_order_id"] = token
 
     urlkwargs = {}
     if "cart_namespace" in kwargs:
@@ -301,7 +352,10 @@ def webhook(request, *args, **kwargs):
     Webhook reference
     """
     event_body = request.body.decode("utf-8").strip()
-    event_json = json.loads(event_body)
+    try:
+        event_json = json.loads(event_body)
+    except json.JSONDecodeError:
+        return HttpResponse("Invalid JSON", status=HTTPStatus.BAD_REQUEST)
 
     if event_json.get("resource_type") not in ("checkout-order", "refund", "capture"):
         return HttpResponse("Wrong resource type", status=HTTPStatus.BAD_REQUEST)
@@ -396,7 +450,7 @@ def webhook(request, *args, **kwargs):
             captured = False
             captures_completed = True
             for purchase_unit in order_detail.get("purchase_units", []):
-                for capture in safe_get(purchase_unit, ["payment", "captures"], []):
+                for capture in safe_get(purchase_unit, ["payments", "captures"], []):
                     with contextlib.suppress(ReferencedPayPalObject.MultipleObjectsReturned):
                         ReferencedPayPalObject.objects.get_or_create(
                             order=payment.order,
@@ -435,9 +489,12 @@ def webhook(request, *args, **kwargs):
 
 
 @event_permission_required("can_change_event_settings")
-@require_POST
 def oauth_disconnect(request, **kwargs):
+    if request.method != "POST":
+        return render(request, "plugins/paypal/oauth_disconnect.html", {})
+
     del request.event.settings.payment_paypal_connect_user_id
+    del request.event.settings.payment_paypal_connect_user_name
     del request.event.settings.payment_paypal_merchant_id
     request.event.settings.payment_paypal__enabled = False
     messages.success(request, _("Your PayPal account has been disconnected."))

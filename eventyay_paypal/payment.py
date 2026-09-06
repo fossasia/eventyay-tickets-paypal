@@ -26,7 +26,7 @@ from i18nfield.strings import LazyI18nString
 
 from .models import ReferencedPayPalObject
 from .paypal_rest import PaypalRequestHandler
-from .utils import safe_get
+from .utils import is_paypal_sandbox, safe_get, uses_paypal_connect
 
 logger = logging.getLogger(__name__)
 
@@ -73,11 +73,10 @@ class Paypal(BasePaymentProvider):
 
     @property
     def test_mode_message(self):
-        if self.settings.connect_client_id and not self.settings.secret:
-            # in OAuth mode, sandbox mode needs to be set global
-            is_sandbox = self.settings.connect_endpoint == "sandbox"
+        if uses_paypal_connect(self.settings):
+            is_sandbox = is_paypal_sandbox(self.settings.connect_endpoint)
         else:
-            is_sandbox = self.settings.get("endpoint") == "sandbox"
+            is_sandbox = is_paypal_sandbox(self.settings.get("endpoint"))
         if is_sandbox:
             return _(
                 "The PayPal sandbox is being used, you can test without actually sending money but you will need a "
@@ -85,19 +84,34 @@ class Paypal(BasePaymentProvider):
             )
         return None
 
+    def connect_configured(self) -> bool:
+        return uses_paypal_connect(self.settings)
+
+    def _connected_merchant_id(self) -> str | None:
+        if self.connect_configured() and self.settings.connect_user_id:
+            return self.settings.merchant_id or None
+        return None
+
     @property
     def settings_form_fields(self):
-        if self.settings.connect_client_id and not self.settings.secret:
-            # PayPal connect
+        if self.connect_configured():
             if self.settings.connect_user_id:
                 fields = [
                     (
-                        "connect_user_id",
+                        "connect_user_name",
                         forms.CharField(label=_("PayPal account"), disabled=True),
+                    ),
+                    (
+                        "connect_user_id",
+                        forms.CharField(label=_("PayPal merchant ID"), disabled=True),
+                    ),
+                    (
+                        "merchant_id",
+                        forms.CharField(label=_("PayPal payer ID"), disabled=True),
                     ),
                 ]
             else:
-                return {}
+                fields = []
         else:
             fields = [
                 (
@@ -163,11 +177,9 @@ class Paypal(BasePaymentProvider):
         return d
 
     def get_connect_url(self, request):
-        """
-        Generate link for button Connect to Paypal in payment setting
-        """
+        """Create a PayPal Partner Referrals action URL for OAuth onboarding."""
         request.session["payment_paypal_oauth_event"] = request.event.pk
-        request.session["payment_paypal_tracking_id"] = get_random_string(111)
+        request.session["payment_paypal_tracking_id"] = get_random_string(32)
 
         response_data = self.paypal_request_handler.create_partner_referrals(
             data={
@@ -203,41 +215,68 @@ class Paypal(BasePaymentProvider):
             )
             return
 
-        response = response_data.get("response")
-        for link in response["links"]:
-            if link["rel"] == "action_url":
-                return link["href"]
+        response = response_data.get("response") or {}
+        for link in response.get("links", []):
+            if link.get("rel") == "action_url":
+                return link.get("href")
+        messages.error(
+            request,
+            _("An error occurred during connecting with PayPal, please try again."),
+        )
+        return None
 
     def settings_content_render(self, request):
         settings_content = ""
-        if self.settings.connect_client_id and not self.settings.secret:
-            # Use PayPal connect
+        connect_start_url = reverse(
+            "plugins:eventyay_paypal:oauth.start",
+            kwargs={
+                "organizer": self.event.organizer.slug,
+                "event": self.event.slug,
+            },
+        )
+        disconnect_url = reverse(
+            "plugins:eventyay_paypal:oauth.disconnect",
+            kwargs={
+                "organizer": self.event.organizer.slug,
+                "event": self.event.slug,
+            },
+        )
+        if self.connect_configured():
             if not self.settings.connect_user_id:
-                settings_content = ("<p>{}</p><a href='{}' class='btn btn-primary btn-lg'>{}</a>").format(
+                settings_content = (
+                    "<p>{}</p><a href='{}' class='btn btn-primary btn-lg'><span class='fa fa-lock'></span> {}</a>"
+                ).format(
                     _(
                         "To accept payments via PayPal, you will need an account at PayPal. By clicking on the "
-                        "following button, you can either create a new PayPal account connect Eventyay to an existing "
-                        "one."
+                        "following button, you can either create a new PayPal account or connect Eventyay to an "
+                        "existing one."
                     ),
-                    self.get_connect_url(request),
-                    _("Connect with {icon} PayPal").format(icon='<i class="fa fa-paypal"></i>'),
+                    connect_start_url,
+                    _("Connect with PayPal"),
                 )
             else:
-                settings_content = ("<button formaction='{}' class='btn btn-danger'>{}</button>").format(
-                    reverse(
-                        "plugins:eventyay_paypal:oauth.disconnect",
-                        kwargs={
-                            "organizer": self.event.organizer.slug,
-                            "event": self.event.slug,
-                        },
+                account_name = self.settings.connect_user_name or self.settings.connect_user_id
+                settings_content = (
+                    "<div class='alert alert-success'>{}</div><a href='{}' class='btn btn-danger'>{}</a>"
+                ).format(
+                    _("Connected as {account}. Your PayPal account is linked to Eventyay.").format(
+                        account=account_name
                     ),
+                    disconnect_url,
                     _("Disconnect from PayPal"),
                 )
         else:
-            settings_content = "<div class='alert alert-info'>{}<br /><code>{}</code></div>".format(
+            settings_content = (
+                "<div class='alert alert-warning'>{}</div><div class='alert alert-info'>{}<br /><code>{}</code></div>"
+            ).format(
                 _(
-                    "Please configure a PayPal Webhook to the following endpoint in order to automatically cancel orders "
-                    "when payments are refunded externally. And set webhook id to make it work properly."
+                    "PayPal Connect is not yet configured. Please ask your administrator to set up "
+                    "the PayPal Connect credentials (Client ID and Secret Key) in the global settings "
+                    "before you can connect your PayPal account."
+                ),
+                _(
+                    "If you use direct PayPal REST credentials instead, configure a PayPal Webhook for "
+                    "the following endpoint and set the webhook ID below."
                 ),
                 build_global_uri("plugins:eventyay_paypal:webhook"),
             )
@@ -268,10 +307,7 @@ class Paypal(BasePaymentProvider):
         return super().is_allowed(request, total) and self.event.currency in SUPPORTED_CURRENCIES
 
     def payment_is_valid_session(self, request):
-        return (
-            request.session.get("payment_paypal_order_id", "") != ""
-            and request.session.get("payment_paypal_payer", "") != ""
-        )
+        return bool(request.session.get("payment_paypal_order_id"))
 
     def payment_form_render(self, request) -> str:
         template = get_template("plugins/paypal/checkout_payment_form.html")
@@ -283,68 +319,21 @@ class Paypal(BasePaymentProvider):
         if request.resolver_match and "cart_namespace" in request.resolver_match.kwargs:
             kwargs["cart_namespace"] = request.resolver_match.kwargs["cart_namespace"]
 
-        payee = {}
-        if self.settings.get("client_id") or self.settings.get("secret"):
-            # In case organizer set their own info
-            # Check undeleted infos and remove theme
-            if request.event.settings.payment_paypal_connect_user_id:
-                del request.event.settings.payment_paypal_connect_user_id
-            if request.event.settings.payment_paypal_merchant_id:
-                del request.event.settings.payment_paypal_merchant_id
-        elif request.event.settings.payment_paypal_connect_user_id:
-            payee = {
-                "merchant_id": request.event.settings.payment_paypal_merchant_id,
-            }
-
         order_response = self.paypal_request_handler.create_order(
-            order_data={
-                "intent": "CAPTURE",
-                "purchase_units": [
-                    {
-                        "items": [
-                            {
-                                "name": (f"{self.settings.prefix} " if self.settings.prefix else "")
-                                + __("Order for %s") % str(request.event),
-                                "quantity": "1",
-                                "unit_amount": {
-                                    "currency_code": request.event.currency,
-                                    "value": self.format_price(cart["total"]),
-                                },
-                            }
-                        ],
-                        "amount": {
-                            "currency_code": request.event.currency,
-                            "value": self.format_price(cart["total"]),
-                            "breakdown": {
-                                "item_total": {
-                                    "currency_code": request.event.currency,
-                                    "value": self.format_price(cart["total"]),
-                                }
-                            },
-                        },
-                        "description": __("Event tickets for {event}").format(event=request.event.name),
-                        "payee": payee,
-                    }
-                ],
-                "payment_source": {
-                    "paypal": {
-                        "experience_context": {
-                            "payment_method_preference": "UNRESTRICTED",
-                            "landing_page": "LOGIN",
-                            "return_url": build_absolute_uri(
-                                request.event,
-                                "plugins:eventyay_paypal:return",
-                                kwargs=kwargs,
-                            ),
-                            "cancel_url": build_absolute_uri(
-                                request.event,
-                                "plugins:eventyay_paypal:abort",
-                                kwargs=kwargs,
-                            ),
-                        }
-                    }
-                },
-            }
+            order_data=self._order_payload(
+                request,
+                cart["total"],
+                return_url=build_absolute_uri(
+                    request.event,
+                    "plugins:eventyay_paypal:return",
+                    kwargs=kwargs,
+                ),
+                cancel_url=build_absolute_uri(
+                    request.event,
+                    "plugins:eventyay_paypal:abort",
+                    kwargs=kwargs,
+                ),
+            )
         )
 
         if errors := order_response.get("errors"):
@@ -359,6 +348,50 @@ class Paypal(BasePaymentProvider):
         order_created = order_response.get("response")
         request.session["payment_paypal_payment"] = None
         return self._create_order(request, order_created)
+
+    def _order_payload(self, request, amount, *, return_url: str, cancel_url: str) -> dict:
+        formatted_amount = self.format_price(amount)
+        purchase_unit = {
+            "items": [
+                {
+                    "name": (f"{self.settings.prefix} " if self.settings.prefix else "")
+                    + __("Order for %s") % str(request.event),
+                    "quantity": "1",
+                    "unit_amount": {
+                        "currency_code": request.event.currency,
+                        "value": formatted_amount,
+                    },
+                }
+            ],
+            "amount": {
+                "currency_code": request.event.currency,
+                "value": formatted_amount,
+                "breakdown": {
+                    "item_total": {
+                        "currency_code": request.event.currency,
+                        "value": formatted_amount,
+                    }
+                },
+            },
+            "description": __("Event tickets for {event}").format(event=request.event.name),
+        }
+        merchant_id = self._connected_merchant_id()
+        if merchant_id:
+            purchase_unit["payee"] = {"merchant_id": merchant_id}
+        return {
+            "intent": "CAPTURE",
+            "purchase_units": [purchase_unit],
+            "payment_source": {
+                "paypal": {
+                    "experience_context": {
+                        "payment_method_preference": "UNRESTRICTED",
+                        "landing_page": "LOGIN",
+                        "return_url": return_url,
+                        "cancel_url": cancel_url,
+                    }
+                }
+            },
+        }
 
     def format_price(self, value):
         return str(
@@ -399,15 +432,17 @@ class Paypal(BasePaymentProvider):
         return False
 
     def _create_order(self, request, order):
-        if order.get("status") not in ("CREATED", "PAYER_ACTION_REQUIRED"):
+        if not order or order.get("status") not in ("CREATED", "PAYER_ACTION_REQUIRED"):
             messages.error(request, _("We had trouble communicating with PayPal"))
-            logger.error("Invalid order state: %s", str(order))
+            logger.error("Invalid order state: %s", order)
             return
 
         request.session["payment_paypal_order_id"] = order["id"]
         for link in order.get("links", []):
-            if link.get("rel") == "payer-action":
+            if link.get("rel") in ("payer-action", "approve"):
                 href = link.get("href")
+                if not href:
+                    continue
                 if request.session.get("iframe_session", False):
                     signer = signing.Signer(salt="safe-redirect")
                     return (
@@ -415,8 +450,10 @@ class Paypal(BasePaymentProvider):
                         + "?url="
                         + urllib.parse.quote(signer.sign(href))
                     )
-                else:
-                    return str(href)
+                return str(href)
+        messages.error(request, _("We had trouble communicating with PayPal"))
+        logger.error("PayPal order %s did not include an approval URL: %s", order.get("id"), order)
+        return None
 
     def checkout_confirm_render(self, request) -> str:
         """
@@ -443,8 +480,7 @@ class Paypal(BasePaymentProvider):
             raise PaymentException(_("Unable to process your payment with Paypal"))
 
         order_id = request.session.get("payment_paypal_order_id", "")
-        paypal_payer = request.session.get("payment_paypal_payer", "")
-        if not order_id or not paypal_payer:
+        if not order_id:
             raise PaymentException(
                 _("We were unable to process your payment. See below for details on how to proceed.")
             )
@@ -458,12 +494,20 @@ class Paypal(BasePaymentProvider):
                 "Unable to retrieve order %s from Paypal: %s",
             )
 
-        order_detail = order_response.get("response")
+        order_detail = order_response.get("response") or {}
+        if not order_detail:
+            handle_paypal_error(
+                {"type": "EmptyResponse", "reason": "Empty PayPal order response", "exception": None},
+                order_id,
+                payment,
+                "Unable to retrieve order %s from Paypal: %s",
+            )
         with contextlib.suppress(ReferencedPayPalObject.MultipleObjectsReturned):
             ReferencedPayPalObject.objects.get_or_create(order=payment.order, payment=payment, reference=order_id)
 
         if (
-            str(safe_get(order_detail.get("purchase_units", [{}])[0], ["amount", "value"])) != str(payment.amount)
+            self.format_price(payment.amount)
+            != str(safe_get(order_detail.get("purchase_units", [{}])[0], ["amount", "value"]))
             or safe_get(order_detail.get("purchase_units", [{}])[0], ["amount", "currency_code"]) != self.event.currency
         ):
             logger.error(
@@ -483,7 +527,10 @@ class Paypal(BasePaymentProvider):
                 _("We were unable to process your payment. See below for details on how to proceed.")
             )
 
-        if order_detail["status"] == "APPROVED":
+        captured_order = None
+        if order_detail["status"] == "COMPLETED":
+            captured_order = order_detail
+        elif order_detail["status"] == "APPROVED":
             description = (f"{self.settings.prefix} " if self.settings.prefix else "") + __(
                 "Order {order} for {event}"
             ).format(event=request.event.name, order=payment.order.code)
@@ -515,7 +562,7 @@ class Paypal(BasePaymentProvider):
                     "Unable to capture order %s in Paypal: %s",
                 )
 
-            captured_order = capture_response.get("response")
+            captured_order = capture_response.get("response") or {}
             for purchase_unit in captured_order.get("purchase_units", []):
                 for capture in safe_get(purchase_unit, ["payments", "captures"], []):
                     with contextlib.suppress(ReferencedPayPalObject.MultipleObjectsReturned):
@@ -535,9 +582,15 @@ class Paypal(BasePaymentProvider):
                         payment.state = OrderPayment.PAYMENT_STATE_PENDING
                         payment.save()
                         return
+        else:
+            payment.fail(info=order_detail)
+            logger.error("Invalid PayPal order state: %s", order_detail)
+            raise PaymentException(
+                _("We were unable to process your payment. See below for details on how to proceed.")
+            )
 
         payment.refresh_from_db()
-        if captured_order["status"] != "COMPLETED":
+        if not captured_order or captured_order.get("status") != "COMPLETED":
             payment.fail(info=captured_order)
             logger.error("Invalid state: %s", repr(captured_order))
             raise PaymentException(
@@ -620,7 +673,7 @@ class Paypal(BasePaymentProvider):
         return (now() - payment.payment_date).days <= 180
 
     def payment_refund_supported(self, payment: OrderPayment):
-        self.payment_partial_refund_supported(payment)
+        return self.payment_partial_refund_supported(payment)
 
     def execute_refund(self, refund: OrderRefund):
         payment_info_data = refund.payment.info_data
@@ -705,60 +758,13 @@ class Paypal(BasePaymentProvider):
             )
 
     def payment_prepare(self, request, payment_obj):
-        payee = {}
-        if self.settings.get("client_id") or self.settings.get("secret"):
-            # In case organizer set their own info
-            # Check undeleted infos and remove theme
-            if request.event.settings.payment_paypal_connect_user_id:
-                del request.event.settings.payment_paypal_connect_user_id
-            if request.event.settings.payment_paypal_merchant_id:
-                del request.event.settings.payment_paypal_merchant_id
-        elif request.event.settings.payment_paypal_connect_user_id:
-            payee = {
-                "merchant_id": request.event.settings.payment_paypal_merchant_id,
-            }
-
         order_response = self.paypal_request_handler.create_order(
-            order_data={
-                "intent": "CAPTURE",
-                "purchase_units": [
-                    {
-                        "items": [
-                            {
-                                "name": (f"{self.settings.prefix} " if self.settings.prefix else "")
-                                + __("Order for %s") % str(request.event),
-                                "quantity": "1",
-                                "unit_amount": {
-                                    "currency_code": request.event.currency,
-                                    "value": self.format_price(payment_obj.amount),
-                                },
-                            }
-                        ],
-                        "amount": {
-                            "currency_code": request.event.currency,
-                            "value": self.format_price(payment_obj.amount),
-                            "breakdown": {
-                                "item_total": {
-                                    "currency_code": request.event.currency,
-                                    "value": self.format_price(payment_obj.amount),
-                                }
-                            },
-                        },
-                        "description": __("Event tickets for {event}").format(event=request.event.name),
-                        "payee": payee,
-                    }
-                ],
-                "payment_source": {
-                    "paypal": {
-                        "experience_context": {
-                            "payment_method_preference": "UNRESTRICTED",
-                            "landing_page": "LOGIN",
-                            "return_url": build_absolute_uri(request.event, "plugins:eventyay_paypal:return"),
-                            "cancel_url": build_absolute_uri(request.event, "plugins:eventyay_paypal:abort"),
-                        }
-                    }
-                },
-            }
+            order_data=self._order_payload(
+                request,
+                payment_obj.amount,
+                return_url=build_absolute_uri(request.event, "plugins:eventyay_paypal:return"),
+                cancel_url=build_absolute_uri(request.event, "plugins:eventyay_paypal:abort"),
+            )
         )
 
         if order_response.get("errors"):
