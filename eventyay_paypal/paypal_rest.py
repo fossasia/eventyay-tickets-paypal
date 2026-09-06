@@ -281,7 +281,13 @@ class PaypalRequestHandler:
         ``tracking_id``, and ``status`` on success, or ``errors`` on failure.
         """
         if not partner_payer_id or not merchant_id:
-            return {"errors": {"type": "MissingParams", "reason": "partner_payer_id and merchant_id are required", "exception": None}}
+            return {
+                "errors": {
+                    "type": "MissingParams",
+                    "reason": "partner_payer_id and merchant_id are required",
+                    "exception": None,
+                }
+            }
         return self.authorized_request(
             url=self.merchant_integrations_url.format(
                 partner_payer_id=partner_payer_id,

@@ -527,10 +527,7 @@ class Paypal(BasePaymentProvider):
             _amounts_match = Decimal(self.format_price(payment.amount)) == Decimal(str(_paypal_amount_str))
         except Exception:
             _amounts_match = False
-        if (
-            not _amounts_match
-            or safe_get(_unit, ["amount", "currency_code"]) != self.event.currency
-        ):
+        if not _amounts_match or safe_get(_unit, ["amount", "currency_code"]) != self.event.currency:
             logger.error(
                 "Value mismatch: Payment %s vs paypal trans %s",
                 payment.id,
