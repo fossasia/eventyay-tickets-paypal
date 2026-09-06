@@ -6,17 +6,12 @@ on:
   pull_request:
     branches: [dev, main]
 
-permissions:
-  contents: read
-
 jobs:
   ruff:
     name: Lint and format
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-        with:
-          persist-credentials: false
+      - uses: actions/checkout@v4
       - uses: astral-sh/ruff-action@v3
         with:
           args: check .

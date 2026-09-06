@@ -60,8 +60,3 @@ target/
 
 #Ipython Notebook
 .ipynb_checkpoints
-
-.venv/
-.ruff_cache/
-.pytest_cache/
-uv.lock.bak
