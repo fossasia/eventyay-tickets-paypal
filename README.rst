@@ -85,13 +85,13 @@ From the ``eventyay-paypal`` directory, install the plugin in editable mode.
 
 .. code-block:: bash
 
-   pip install -e .
+   pip install -e ".[dev]"
 
 If your Eventyay development setup uses ``uv``, you can also use:
 
 .. code-block:: bash
 
-   uv pip install -e .
+   uv pip install -e ".[dev]"
 
 5. Apply migrations
 ~~~~~~~~~~~~~~~~~~~
@@ -253,7 +253,7 @@ Install the plugin in editable mode:
 
 .. code-block:: bash
 
-   pip install -e .
+   pip install -e ".[dev]"
 
 Compile translations:
 
