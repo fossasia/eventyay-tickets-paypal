@@ -228,6 +228,7 @@ Global plugin URLs include:
 
 .. code-block:: text
 
+   /control/event/<organizer>/<event>/paypal/connect/
    /control/event/<organizer>/<event>/paypal/disconnect/
    /_paypal/webhook/
    /_paypal/oauth_return/

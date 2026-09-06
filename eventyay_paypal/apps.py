@@ -22,4 +22,4 @@ class PaypalPluginApp(AppConfig):
         from . import signals  # NOQA
 
 
-default_app_config = "eventyay-paypal.apps.PaypalPluginApp"
+default_app_config = "eventyay_paypal.apps.PaypalPluginApp"

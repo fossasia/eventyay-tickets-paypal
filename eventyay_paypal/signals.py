@@ -59,6 +59,8 @@ def pretixcontrol_action_display(sender, action, request, **kwargs):
         template = get_template("plugins/paypal/action_overpaid.html")
     elif action.action_type == "eventyay.plugins.eventyay_paypal.double":
         template = get_template("plugins/paypal/action_double.html")
+    else:
+        return
 
     ctx = {"data": data, "event": sender, "action": action}
     return template.render(ctx, request)
@@ -90,6 +92,19 @@ def register_global_settings(sender, **kwargs):
                     choices=(
                         ("live", "Live"),
                         ("sandbox", "Sandbox"),
+                    ),
+                ),
+            ),
+            (
+                "payment_paypal_connect_partner_payer_id",
+                forms.CharField(
+                    label=_("PayPal Connect: Platform Payer ID"),
+                    required=False,
+                    help_text=_(
+                        "The PayPal merchant/payer ID of the platform's own PayPal account "
+                        "(found in the PayPal Developer Dashboard under your partner account). "
+                        "When set, Eventyay will fetch the connected merchant's email address "
+                        "from PayPal after OAuth onboarding and display it in the event settings."
                     ),
                 ),
             ),

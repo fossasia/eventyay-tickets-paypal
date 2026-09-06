@@ -1,0 +1,23 @@
+{% extends "pretixcontrol/base.html" %}
+{% load i18n %}
+{% block title %}{% trans "PayPal Connect" %}{% endblock %}
+{% block content %}
+    <h1>
+        {% trans "PayPal Connect" %}
+    </h1>
+
+    <form action="" method="post" class="form-horizontal">
+        {% csrf_token %}
+        <p>
+            {% trans "Do you really want to disconnect your PayPal account?" %}
+        </p>
+        <div class="form-group submit-group">
+            <a href="{{ cancel_url }}" class="btn btn-default">
+                {% trans "Cancel" %}
+            </a>
+            <button type="submit" class="btn btn-danger btn-save">
+                {% trans "Disconnect" %}
+            </button>
+        </div>
+    </form>
+{% endblock %}
