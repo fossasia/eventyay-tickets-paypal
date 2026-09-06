@@ -46,6 +46,11 @@ def is_paypal_sandbox(endpoint: str | None) -> bool:
     return resolve_paypal_api_base(endpoint) == SANDBOX_API_BASE
 
 
+def canonical_paypal_endpoint(endpoint: str | None) -> str:
+    """Return live or sandbox for stored endpoint aliases and legacy URLs."""
+    return "sandbox" if is_paypal_sandbox(endpoint) else "live"
+
+
 def uses_paypal_connect(settings) -> bool:
     return bool(settings.connect_client_id and settings.connect_secret_key)
 

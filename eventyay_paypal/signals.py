@@ -59,6 +59,8 @@ def pretixcontrol_action_display(sender, action, request, **kwargs):
         template = get_template("plugins/paypal/action_overpaid.html")
     elif action.action_type == "eventyay.plugins.eventyay_paypal.double":
         template = get_template("plugins/paypal/action_double.html")
+    else:
+        return
 
     ctx = {"data": data, "event": sender, "action": action}
     return template.render(ctx, request)

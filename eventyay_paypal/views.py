@@ -28,6 +28,21 @@ from .utils import safe_get
 logger = logging.getLogger(__name__)
 
 
+def paypal_provider_settings_url(event):
+    return reverse(
+        "control:event.settings.payment.provider",
+        kwargs={
+            "organizer": event.organizer.slug,
+            "event": event.slug,
+            "provider": "paypal",
+        },
+    )
+
+
+def redirect_to_paypal_settings(event):
+    return redirect(paypal_provider_settings_url(event))
+
+
 @xframe_options_exempt
 def redirect_view(request, *args, **kwargs):
     signer = signing.Signer(salt="safe-redirect")
@@ -57,28 +72,10 @@ def oauth_start(request, **kwargs):
             request,
             _("PayPal Connect is not yet configured. Please ask your administrator to set up the credentials."),
         )
-        return redirect(
-            reverse(
-                "control:event.settings.payment.provider",
-                kwargs={
-                    "organizer": request.event.organizer.slug,
-                    "event": request.event.slug,
-                    "provider": "paypal",
-                },
-            )
-        )
+        return redirect_to_paypal_settings(request.event)
     url = prov.get_connect_url(request)
     if not url:
-        return redirect(
-            reverse(
-                "control:event.settings.payment.provider",
-                kwargs={
-                    "organizer": request.event.organizer.slug,
-                    "event": request.event.slug,
-                    "provider": "paypal",
-                },
-            )
-        )
+        return redirect_to_paypal_settings(request.event)
     return redirect(url)
 
 
@@ -130,16 +127,7 @@ def oauth_return(request, *args, **kwargs):
         _("Your PayPal account is now connected to Eventyay. You can change the settings in detail below."),
     )
 
-    return redirect(
-        reverse(
-            "control:event.settings.payment.provider",
-            kwargs={
-                "organizer": event.organizer.slug,
-                "event": event.slug,
-                "provider": "paypal",
-            },
-        )
-    )
+    return redirect_to_paypal_settings(event)
 
 
 def success(request, *args, **kwargs):
@@ -235,7 +223,13 @@ def check_webhook_signature(request, event, event_json, prov) -> bool:
 
     # Prevent replay attacks: check timestamp
     current_time = datetime.now(UTC)
-    transmission_time = datetime.fromisoformat(request.headers.get("PAYPAL-TRANSMISSION-TIME"))
+    try:
+        transmission_time = datetime.fromisoformat(request.headers.get("PAYPAL-TRANSMISSION-TIME"))
+    except (TypeError, ValueError):
+        logger.error("Paypal webhook timestamp is invalid")
+        return False
+    if transmission_time.tzinfo is None:
+        transmission_time = transmission_time.replace(tzinfo=UTC)
     if current_time - transmission_time > timedelta(minutes=7):
         logger.error("Paypal webhook timestamp is too old.")
         return False
@@ -252,9 +246,11 @@ def check_webhook_signature(request, event, event_json, prov) -> bool:
         }
     )
 
-    if verify_response.get("errors") or safe_get(verify_response, ["response", "verification_status"], "") == "FAILURE":
-        errors = verify_response.get("errors")
-        logger.error("Unable to verify signature of webhook: %s", errors["reason"])
+    if errors := verify_response.get("errors"):
+        logger.error("Unable to verify signature of webhook: %s", errors.get("reason", errors))
+        return False
+    if safe_get(verify_response, ["response", "verification_status"], "") != "SUCCESS":
+        logger.error("Unable to verify signature of webhook")
         return False
     return True
 
@@ -317,8 +313,7 @@ def extract_order_and_payment(payment_id, event, event_json, prov, rpo=None):
 
     order_response = prov.paypal_request_handler.get_order(order_id=payment_id)
     if errors := order_response.get("errors"):
-        logger.error("Paypal error on webhook: %s", errors["reason"])
-        logger.exception("PayPal error on webhook. Event data: %s", str(event_json))
+        logger.error("Paypal error on webhook: %s event=%s", errors.get("reason", errors), event_json)
         return order_detail, payment
 
     order_detail = order_response.get("response")
@@ -383,8 +378,7 @@ def webhook(request, *args, **kwargs):
             merchant_id=event.settings.payment_paypal_merchant_id,
         )
         if errors := refund_response.get("errors"):
-            logger.error("Paypal error on webhook: %s", errors["reason"])
-            logger.exception("PayPal error on webhook. Event data: %s", str(event_json))
+            logger.error("Paypal error on webhook: %s event=%s", errors.get("reason", errors), event_json)
             return HttpResponse(f"Refund {refund_id_in_event} not found", status=HTTPStatus.BAD_REQUEST)
 
         refund_detail = refund_response.get("response")
@@ -443,9 +437,8 @@ def webhook(request, *args, **kwargs):
             try:
                 request.session["payment_paypal_order_id"] = payment.info_data.get("id")
                 payment.payment_provider.execute_payment(request, payment)
-            except PaymentException as e:
-                logger.error("Error executing approved payment in webhook: payment not yet populated.")
-                logger.exception("Unable to execute payment in webhook: %s", str(e))
+            except PaymentException:
+                logger.exception("Unable to execute payment in webhook")
         elif order_detail.get("status") == "COMPLETED":
             captured = False
             captures_completed = True
@@ -491,7 +484,11 @@ def webhook(request, *args, **kwargs):
 @event_permission_required("can_change_event_settings")
 def oauth_disconnect(request, **kwargs):
     if request.method != "POST":
-        return render(request, "plugins/paypal/oauth_disconnect.html", {})
+        return render(
+            request,
+            "plugins/paypal/oauth_disconnect.html",
+            {"cancel_url": paypal_provider_settings_url(request.event)},
+        )
 
     del request.event.settings.payment_paypal_connect_user_id
     del request.event.settings.payment_paypal_connect_user_name
@@ -499,13 +496,4 @@ def oauth_disconnect(request, **kwargs):
     request.event.settings.payment_paypal__enabled = False
     messages.success(request, _("Your PayPal account has been disconnected."))
 
-    return redirect(
-        reverse(
-            "control:event.settings.payment.provider",
-            kwargs={
-                "organizer": request.event.organizer.slug,
-                "event": request.event.slug,
-                "provider": "paypal",
-            },
-        )
-    )
+    return redirect_to_paypal_settings(request.event)

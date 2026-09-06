@@ -12,6 +12,9 @@
             {% trans "Do you really want to disconnect your PayPal account?" %}
         </p>
         <div class="form-group submit-group">
+            <a href="{{ cancel_url }}" class="btn btn-default">
+                {% trans "Cancel" %}
+            </a>
             <button type="submit" class="btn btn-danger btn-save">
                 {% trans "Disconnect" %}
             </button>

@@ -47,6 +47,33 @@ class PaypalRequestHandler:
 
         self.paypal_request_id = self.get_paypal_request_id()
 
+    def json_auth_headers(self, extra: dict | None = None) -> dict | None:
+        token = self.get_access_token()
+        if not token:
+            return None
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {token}",
+        }
+        if extra:
+            headers.update(extra)
+        return headers
+
+    def credentials_error(self) -> dict:
+        return {
+            "errors": {
+                "type": "ConfigError",
+                "reason": "PayPal API credentials are not configured",
+                "exception": None,
+            }
+        }
+
+    def authorized_request(self, url: str, method: HTTPMethod, data=None, extra_headers: dict | None = None) -> dict:
+        headers = self.json_auth_headers(extra_headers)
+        if headers is None:
+            return self.credentials_error()
+        return self.request(url=url, method=method, data=data, headers=headers)
+
     def request(
         self,
         url: str,
@@ -58,20 +85,23 @@ class PaypalRequestHandler:
     ) -> dict:
         reason = ""
         response_data = {}
-        try:
-            if method == HTTPMethod.GET:
-                response = requests.get(url, data=data, params=params, headers=headers, timeout=timeout)
-            elif method == HTTPMethod.POST:
-                response = requests.post(url, data=data, params=params, headers=headers, timeout=timeout)
-            elif method == HTTPMethod.PATCH:
-                response = requests.patch(url, data=data, params=params, headers=headers, timeout=timeout)
-            else:
-                response_data["errors"] = {
+        if method not in {HTTPMethod.GET, HTTPMethod.POST, HTTPMethod.PATCH}:
+            return {
+                "errors": {
                     "type": "UnsupportedMethod",
                     "reason": f"Unsupported HTTP method: {method}",
                     "exception": None,
                 }
-                return response_data
+            }
+        try:
+            response = requests.request(
+                method.value,
+                url,
+                data=data,
+                params=params,
+                headers=headers,
+                timeout=timeout,
+            )
 
             reason = paypal_error_reason(response, fallback=response.reason)
             response.raise_for_status()
@@ -147,7 +177,7 @@ class PaypalRequestHandler:
             )
 
             if errors := access_token_response.get("errors"):
-                logger.error("Error getting access token from Paypal: %s", errors["reason"])
+                logger.error("Error getting access token from Paypal: %s", errors.get("reason", errors))
                 return {}
 
             access_token_data = access_token_response.get("response") or {}
@@ -172,66 +202,45 @@ class PaypalRequestHandler:
         return access_token_data.get("access_token")
 
     def create_partner_referrals(self, data: dict) -> dict:
-        return self.request(
+        return self.authorized_request(
             url=self.partner_referrals_url,
             method=HTTPMethod.POST,
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {self.get_access_token()}",
-            },
             data=json.dumps(data),
         )
 
     def get_order(self, order_id: str) -> dict:
-        return self.request(
+        return self.authorized_request(
             url=self.order_url.format(order_id=order_id),
             method=HTTPMethod.GET,
-            headers={"Authorization": f"Bearer {self.get_access_token()}"},
         )
 
     def create_order(self, order_data: dict) -> dict:
-        return self.request(
+        return self.authorized_request(
             url=self.create_order_url,
             method=HTTPMethod.POST,
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {self.get_access_token()}",
-                "PayPal-Request-Id": self.paypal_request_id,
-            },
+            extra_headers={"PayPal-Request-Id": self.paypal_request_id},
             data=json.dumps(order_data),
         )
 
     def capture_order(self, order_id: str) -> dict:
-        return self.request(
+        return self.authorized_request(
             url=self.capture_order_url.format(order_id=order_id),
             method=HTTPMethod.POST,
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {self.get_access_token()}",
-                "PayPal-Request-Id": self.paypal_request_id,
-            },
+            extra_headers={"PayPal-Request-Id": self.paypal_request_id},
         )
 
     def update_order(self, order_id: str, update_data: list[dict]) -> dict:
-        return self.request(
+        return self.authorized_request(
             url=self.order_url.format(order_id=order_id),
             method=HTTPMethod.PATCH,
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {self.get_access_token()}",
-            },
             data=json.dumps(update_data),
         )
 
     def get_refund_detail(self, refund_id: str, merchant_id: str) -> dict:
-        return self.request(
+        return self.authorized_request(
             url=self.refund_detail_url.format(refund_id=refund_id),
             method=HTTPMethod.GET,
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {self.get_access_token()}",
-                "PayPal-Auth-Assertion": self.get_paypal_auth_assertion(merchant_id),
-            },
+            extra_headers={"PayPal-Auth-Assertion": self.get_paypal_auth_assertion(merchant_id)},
         )
 
     def refund_payment(
@@ -240,12 +249,10 @@ class PaypalRequestHandler:
         refund_data: dict,
         merchant_id: str = None,
     ) -> dict:
-        return self.request(
+        return self.authorized_request(
             url=self.refund_payment_url.format(capture_id=capture_id),
             method=HTTPMethod.POST,
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {self.get_access_token()}",
+            extra_headers={
                 "PayPal-Auth-Assertion": self.get_paypal_auth_assertion(merchant_id),
                 "PayPal-Request-Id": self.paypal_request_id,
             },
@@ -253,12 +260,8 @@ class PaypalRequestHandler:
         )
 
     def verify_webhook_signature(self, data: dict) -> dict:
-        return self.request(
+        return self.authorized_request(
             url=self.verify_webhook_url,
             method=HTTPMethod.POST,
             data=json.dumps(data),
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {self.get_access_token()}",
-            },
         )
